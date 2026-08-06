@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown as the background while Flutter's first frame renders. Solid dark
+     color matching the app's dark theme (see lib/main.dart ColorScheme). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+</layer-list>
