@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/broadcast_engine.dart';
 import '../services/settings_service.dart';
+import 'settings_screen.dart';
 
 /// Main "on air" view: mic toggle, live/stop control, level meters,
 /// connection status, and the mic/track crossfader. This is the screen
@@ -53,13 +54,26 @@ class _StudioScreenState extends State<StudioScreen> {
     final config = await _settings.loadConfig();
     if (config == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Set up your broadcast server in Settings first'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Set up your broadcast server in Settings first'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: _openSettings,
+            ),
+          ),
+        );
       }
       return;
     }
     await _engine.startStream(config);
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
   }
 
   String get _statusLabel {
@@ -98,7 +112,15 @@ class _StudioScreenState extends State<StudioScreen> {
     final isLive = _status == StreamStatus.live;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Studio')),
+      appBar: AppBar(
+        title: const Text('Studio'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _openSettings,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
