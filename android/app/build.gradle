@@ -3,7 +3,7 @@ plugins {
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
-
+h
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -69,6 +69,7 @@ android {
             // for local testing without a keystore present.
             signingConfig = hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = false
+            shrinkResources = false
         }
     }
 }
