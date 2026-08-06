@@ -14,6 +14,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import ng.soccerhub.bcast.audio.AudioCaptureManager
 import ng.soccerhub.bcast.audio.AudioMixer
+import ng.soccerhub.bcast.audio.CartPlayer
 import ng.soccerhub.bcast.audio.IcecastConnectionConfig
 import ng.soccerhub.bcast.audio.IcecastSourceClient
 import ng.soccerhub.bcast.audio.MixTarget
@@ -75,6 +76,7 @@ class BroadcastService : Service() {
     private lateinit var mixer: AudioMixer
     private lateinit var encoder: StreamEncoder
     private var sourceClient: IcecastSourceClient? = null
+    private var cartPlayer: CartPlayer? = null
 
     private var liveStartTimeMs: Long = 0
     private var configuredBitrateKbps: Int = 128
@@ -124,10 +126,26 @@ class BroadcastService : Service() {
         sourceClient?.updateMetadata(title ?: "", artist ?: "")
     }
 
-    // TODO: playTrack/pauseTrack/skipTrack/queueTrack/playCart — depend on a
-    // TrackPlayer/CartPlayer component (decodes local audio files to PCM and
-    // pushes into mixer.pushTrackSamples()). Not yet built; next piece after
-    // this core pipeline is confirmed working end-to-end with mic-only audio.
+    /**
+     * Fire-and-forget instant playback for the cart wall — decodes the file
+     * and mixes it into the live stream immediately, over whatever else is
+     * playing. Only works while a broadcast is live (mixer/pipeline must
+     * already be running); silently no-ops otherwise since there's nothing
+     * to mix into yet.
+     */
+    fun playCart(filePath: String) {
+        if (!isLive || !::mixer.isInitialized) return
+        if (cartPlayer == null) {
+            cartPlayer = CartPlayer(mixer)
+        }
+        cartPlayer?.play(filePath)
+    }
+
+    // TODO: playTrack/pauseTrack/skipTrack/queueTrack — playlist/bed playback,
+    // distinct from cart wall's fire-and-forget model (needs pause/resume/
+    // queue state). CartPlayer's decode loop is reusable for this but the
+    // playback semantics differ enough to warrant a separate TrackPlayer
+    // component built on the same MediaExtractor/MediaCodec approach.
 
     // ---- Lifecycle ----
 
@@ -271,6 +289,8 @@ class BroadcastService : Service() {
         // already-closed downstream component.
         sourceClient?.disconnect()
         sourceClient = null
+        cartPlayer?.stop()
+        cartPlayer = null
         if (::encoder.isInitialized) encoder.stop()
         if (::audioCapture.isInitialized) audioCapture.stop()
         if (::mixer.isInitialized) mixer.reset()

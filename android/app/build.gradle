@@ -68,6 +68,13 @@ android {
             // signing otherwise so `flutter build apk --release` still works
             // for local testing without a keystore present.
             signingConfig = hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            // Explicitly set both together: AGP requires shrinkResources to
+            // only be enabled alongside minifyEnabled (code shrinking must
+            // run for resource shrinking to have anything to work from).
+            // Both off for now — safe default for v1 while the app is still
+            // under active development; can turn both on together later
+            // once release APK size becomes a concern worth the added
+            // proguard/R8 rule-writing overhead.
             minifyEnabled = false
             shrinkResources = false
         }

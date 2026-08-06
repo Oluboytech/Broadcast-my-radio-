@@ -151,10 +151,17 @@ class MainActivity : FlutterActivity() {
                         )
                         result.success(null)
                     }
-                    "playTrack", "pauseTrack", "skipTrack", "queueTrack", "playCart" -> {
-                        // TODO: not yet implemented — depends on TrackPlayer/CartPlayer,
-                        // the next component after the core mic->encoder->Icecast
-                        // pipeline is verified working end-to-end.
+                    "playCart" -> {
+                        val filePath = (call.arguments as? Map<*, *>)?.get("filePath") as? String
+                        if (filePath != null) {
+                            broadcastService?.playCart(filePath)
+                        }
+                        result.success(null)
+                    }
+                    "playTrack", "pauseTrack", "skipTrack", "queueTrack" -> {
+                        // TODO: not yet implemented — playlist/bed playback needs
+                        // pause/resume/queue state, distinct from cart wall's
+                        // fire-and-forget model. Next piece of work.
                         result.success(null)
                     }
                     else -> result.notImplemented()

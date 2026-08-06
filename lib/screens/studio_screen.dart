@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import '../services/broadcast_engine.dart';
 import '../services/settings_service.dart';
+import '../services/permission_service.dart';
 import 'settings_screen.dart';
+import 'cart_wall_screen.dart';
 
+/// Main "on air" view: mic toggle, live/stop control, level meters,
+/// connection status, and the mic/track crossfader. This is the screen
+/// the broadcaster spends most of their time on while live.
 class StudioScreen extends StatefulWidget {
   const StudioScreen({super.key});
 
@@ -18,7 +23,7 @@ class _StudioScreenState extends State<StudioScreen> {
   bool _micMuted = false;
   double _micLevel = 0.0;
   double _trackLevel = 0.0;
-  double _mixPosition = 0.5;
+  double _mixPosition = 0.5; // 0 = mic only, 1 = track only
 
   @override
   void initState() {
@@ -45,6 +50,34 @@ class _StudioScreenState extends State<StudioScreen> {
   Future<void> _toggleLive() async {
     if (_status == StreamStatus.live || _status == StreamStatus.connecting) {
       await _engine.stopStream();
+      return;
+    }
+
+    final permissionResult =
+        await PermissionService.requestBroadcastPermissions();
+
+    if (!permissionResult.micGranted) {
+      if (mounted) {
+        if (permissionResult.micPermanentlyDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Microphone access is required to broadcast. Enable it in system settings.',
+              ),
+              action: SnackBarAction(
+                label: 'Open settings',
+                onPressed: PermissionService.openSettings,
+              ),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Microphone permission is required to broadcast'),
+            ),
+          );
+        }
+      }
       return;
     }
 
@@ -112,6 +145,15 @@ class _StudioScreenState extends State<StudioScreen> {
         title: const Text('Studio'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.grid_view),
+            tooltip: 'Cart Wall',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CartWallScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _openSettings,
           ),
@@ -122,6 +164,7 @@ class _StudioScreenState extends State<StudioScreen> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
+              // Status
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -139,6 +182,8 @@ class _StudioScreenState extends State<StudioScreen> {
                 ],
               ),
               const SizedBox(height: 32),
+
+              // Level meters
               Row(
                 children: [
                   Expanded(
@@ -151,6 +196,8 @@ class _StudioScreenState extends State<StudioScreen> {
                 ],
               ),
               const SizedBox(height: 32),
+
+              // Live / stop button
               GestureDetector(
                 onTap: _toggleLive,
                 child: Container(
@@ -168,6 +215,8 @@ class _StudioScreenState extends State<StudioScreen> {
                 ),
               ),
               const SizedBox(height: 32),
+
+              // Mic mute
               IconButton.filledTonal(
                 iconSize: 32,
                 onPressed: () {
@@ -177,6 +226,8 @@ class _StudioScreenState extends State<StudioScreen> {
                 icon: Icon(_micMuted ? Icons.mic_off : Icons.mic),
               ),
               const SizedBox(height: 32),
+
+              // Crossfader
               Column(
                 children: [
                   Row(
@@ -207,7 +258,7 @@ class _StudioScreenState extends State<StudioScreen> {
 
 class _LevelMeter extends StatelessWidget {
   final String label;
-  final double level;
+  final double level; // 0.0 - 1.0
 
   const _LevelMeter({required this.label, required this.level});
 

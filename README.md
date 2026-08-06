@@ -98,5 +98,3 @@ Download it there, or share the release link directly.
 - Format: MP3 or AAC supported; MP3 @ 128kbps is the current default
 - Mount point **must** be sent with a leading `/`
 - Bitrate cap depends on plan (Starter: 192kbps, Prime: 320kbps) — 128kbps is safely within either
-
-**Note:** your Zeno mount password was visible in screenshots shared during planning — consider hitting "Reset" on it in the Zeno dashboard before wiring real credentials into this app.

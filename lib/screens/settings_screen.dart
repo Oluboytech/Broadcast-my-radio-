@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../services/broadcast_engine.dart';
 import '../services/settings_service.dart';
 
+/// Broadcast server configuration screen — maps directly to the fields shown
+/// in Zeno.fm's "Broadcast settings" (or any standard Icecast2 source panel):
+/// server address, port, mount point, username, password, format, bitrate.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -37,6 +40,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (config != null && mounted) {
       _serverController.text = config.serverAddress;
       _portController.text = config.port.toString();
+      // Strip leading slash for editing — SettingsService/IcecastConfig
+      // re-adds it when needed, so the field just shows the raw mount name.
       _mountController.text = config.mountPoint.startsWith('/')
           ? config.mountPoint.substring(1)
           : config.mountPoint;
