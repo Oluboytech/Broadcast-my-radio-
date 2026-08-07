@@ -4,6 +4,7 @@ import '../services/settings_service.dart';
 import '../services/permission_service.dart';
 import 'settings_screen.dart';
 import 'cart_wall_screen.dart';
+import 'playlist_screen.dart';
 
 /// Main "on air" view: mic toggle, live/stop control, level meters,
 /// connection status, and the mic/track crossfader. This is the screen
@@ -144,6 +145,15 @@ class _StudioScreenState extends State<StudioScreen> {
       appBar: AppBar(
         title: const Text('Studio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.queue_music),
+            tooltip: 'Playlist',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PlaylistScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.grid_view),
             tooltip: 'Cart Wall',

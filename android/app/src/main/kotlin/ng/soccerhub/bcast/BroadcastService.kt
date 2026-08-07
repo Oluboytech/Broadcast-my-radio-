@@ -20,6 +20,7 @@ import ng.soccerhub.bcast.audio.IcecastSourceClient
 import ng.soccerhub.bcast.audio.MixTarget
 import ng.soccerhub.bcast.audio.SourceStatus
 import ng.soccerhub.bcast.audio.StreamEncoder
+import ng.soccerhub.bcast.audio.TrackPlayer
 
 /**
  * Foreground service that owns the entire live audio pipeline for its lifetime:
@@ -58,6 +59,9 @@ class BroadcastService : Service() {
         fun onLevels(mic: Float, track: Float)
         fun onStats(bitrateKbps: Int, liveDurationSeconds: Int)
         fun onError(message: String)
+        fun onCartPlaybackChanged(filePath: String?)
+        fun onTrackChanged(filePath: String?)
+        fun onQueueChanged(queue: List<String>)
     }
 
     inner class LocalBinder : Binder() {
@@ -77,6 +81,7 @@ class BroadcastService : Service() {
     private lateinit var encoder: StreamEncoder
     private var sourceClient: IcecastSourceClient? = null
     private var cartPlayer: CartPlayer? = null
+    private var trackPlayer: TrackPlayer? = null
 
     private var liveStartTimeMs: Long = 0
     private var configuredBitrateKbps: Int = 128
@@ -136,9 +141,13 @@ class BroadcastService : Service() {
     fun playCart(filePath: String) {
         if (!isLive || !::mixer.isInitialized) return
         if (cartPlayer == null) {
-            cartPlayer = CartPlayer(mixer)
+            cartPlayer = CartPlayer(
+                mixer = mixer,
+                onPlaybackComplete = { listener?.onCartPlaybackChanged(null) }
+            )
         }
         cartPlayer?.play(filePath)
+        listener?.onCartPlaybackChanged(filePath)
     }
 
     // TODO: playTrack/pauseTrack/skipTrack/queueTrack — playlist/bed playback,
@@ -147,7 +156,47 @@ class BroadcastService : Service() {
     // playback semantics differ enough to warrant a separate TrackPlayer
     // component built on the same MediaExtractor/MediaCodec approach.
 
-    // ---- Lifecycle ----
+    private fun ensureTrackPlayer(): TrackPlayer? {
+        if (!::mixer.isInitialized) return null
+        if (trackPlayer == null) {
+            trackPlayer = TrackPlayer(
+                mixer = mixer,
+                onTrackChanged = { path -> listener?.onTrackChanged(path) },
+                onQueueChanged = { queue -> listener?.onQueueChanged(queue) }
+            )
+        }
+        return trackPlayer
+    }
+
+    /** Clears the queue and plays this file immediately as the new bed track. */
+    fun playTrack(filePath: String) {
+        if (!isLive) return
+        ensureTrackPlayer()?.play(filePath)
+    }
+
+    /**
+     * Stops the current track. Note: this does NOT resume from the same
+     * position later — see TrackPlayer's class docs for why (no seek/resume
+     * support in the current decode pipeline). Calling playTrack/queueTrack
+     * again after pause starts fresh.
+     */
+    fun pauseTrack() {
+        trackPlayer?.pause()
+    }
+
+    /** Stops the current track and immediately advances to the next queued one. */
+    fun skipTrack() {
+        trackPlayer?.skip()
+    }
+
+    /**
+     * Adds a file to the end of the playback queue. If nothing is currently
+     * playing, playback starts immediately with this track.
+     */
+    fun queueTrack(filePath: String) {
+        if (!isLive) return
+        ensureTrackPlayer()?.queueTrack(filePath)
+    }    // ---- Lifecycle ----
 
     private fun startBroadcast(intent: Intent) {
         if (isLive) return
@@ -291,6 +340,8 @@ class BroadcastService : Service() {
         sourceClient = null
         cartPlayer?.stop()
         cartPlayer = null
+        trackPlayer?.stop()
+        trackPlayer = null
         if (::encoder.isInitialized) encoder.stop()
         if (::audioCapture.isInitialized) audioCapture.stop()
         if (::mixer.isInitialized) mixer.reset()

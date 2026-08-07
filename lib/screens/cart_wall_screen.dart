@@ -39,11 +39,15 @@ class _CartWallScreenState extends State<CartWallScreen> {
     (i) => CartSlot(label: 'Cart ${i + 1}'),
   );
   bool _isLoading = true;
+  String? _activeCartPath;
 
   @override
   void initState() {
     super.initState();
     _loadSlots();
+    _engine.cartPlaybackStream.listen((filePath) {
+      if (mounted) setState(() => _activeCartPath = filePath);
+    });
   }
 
   Future<void> _loadSlots() async {
@@ -100,6 +104,14 @@ class _CartWallScreenState extends State<CartWallScreen> {
 
   void _fireCart(CartSlot slot) {
     if (slot.filePath == null) return;
+    if (!_engine.currentStatusIsLive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Go live from the Studio screen to play carts'),
+        ),
+      );
+      return;
+    }
     _engine.playCart(slot.filePath!);
   }
 
@@ -156,11 +168,15 @@ class _CartWallScreenState extends State<CartWallScreen> {
           itemBuilder: (context, index) {
             final slot = _slots[index];
             final isAssigned = slot.filePath != null;
+            final isActive =
+                isAssigned && slot.filePath == _activeCartPath;
 
             return Material(
-              color: isAssigned
-                  ? Theme.of(context).colorScheme.primaryContainer
-                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+              color: isActive
+                  ? Theme.of(context).colorScheme.primary
+                  : isAssigned
+                      ? Theme.of(context).colorScheme.primaryContainer
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
@@ -172,8 +188,15 @@ class _CartWallScreenState extends State<CartWallScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        isAssigned ? Icons.play_circle_fill : Icons.add,
+                        isActive
+                            ? Icons.graphic_eq
+                            : isAssigned
+                                ? Icons.play_circle_fill
+                                : Icons.add,
                         size: 28,
+                        color: isActive
+                            ? Theme.of(context).colorScheme.onPrimary
+                            : null,
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -181,7 +204,11 @@ class _CartWallScreenState extends State<CartWallScreen> {
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: isActive
+                                  ? Theme.of(context).colorScheme.onPrimary
+                                  : null,
+                            ),
                       ),
                     ],
                   ),

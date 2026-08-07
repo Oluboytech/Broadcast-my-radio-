@@ -27,11 +27,17 @@ class MainActivity : FlutterActivity() {
     private val levelsChannelName = "ng.soccerhub.bcast/levels"
     private val statsChannelName = "ng.soccerhub.bcast/stats"
     private val errorChannelName = "ng.soccerhub.bcast/errors"
+    private val cartChannelName = "ng.soccerhub.bcast/cart"
+    private val trackChannelName = "ng.soccerhub.bcast/track"
+    private val queueChannelName = "ng.soccerhub.bcast/queue"
 
     private var statusSink: EventChannel.EventSink? = null
     private var levelsSink: EventChannel.EventSink? = null
     private var statsSink: EventChannel.EventSink? = null
     private var errorSink: EventChannel.EventSink? = null
+    private var cartSink: EventChannel.EventSink? = null
+    private var trackSink: EventChannel.EventSink? = null
+    private var queueSink: EventChannel.EventSink? = null
 
     // Event sinks must only be invoked on the main thread — BroadcastService's
     // callbacks arrive from background audio threads, so all forwarding below
@@ -80,6 +86,18 @@ class MainActivity : FlutterActivity() {
 
         override fun onError(message: String) {
             mainHandler.post { errorSink?.success(message) }
+        }
+
+        override fun onCartPlaybackChanged(filePath: String?) {
+            mainHandler.post { cartSink?.success(filePath) }
+        }
+
+        override fun onTrackChanged(filePath: String?) {
+            mainHandler.post { trackSink?.success(filePath) }
+        }
+
+        override fun onQueueChanged(queue: List<String>) {
+            mainHandler.post { queueSink?.success(queue) }
         }
     }
 
@@ -158,10 +176,22 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(null)
                     }
-                    "playTrack", "pauseTrack", "skipTrack", "queueTrack" -> {
-                        // TODO: not yet implemented — playlist/bed playback needs
-                        // pause/resume/queue state, distinct from cart wall's
-                        // fire-and-forget model. Next piece of work.
+                    "playTrack" -> {
+                        val filePath = (call.arguments as? Map<*, *>)?.get("filePath") as? String
+                        if (filePath != null) broadcastService?.playTrack(filePath)
+                        result.success(null)
+                    }
+                    "pauseTrack" -> {
+                        broadcastService?.pauseTrack()
+                        result.success(null)
+                    }
+                    "skipTrack" -> {
+                        broadcastService?.skipTrack()
+                        result.success(null)
+                    }
+                    "queueTrack" -> {
+                        val filePath = (call.arguments as? Map<*, *>)?.get("filePath") as? String
+                        if (filePath != null) broadcastService?.queueTrack(filePath)
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -205,6 +235,36 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     errorSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, cartChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    cartSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    cartSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, trackChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    trackSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    trackSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, queueChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    queueSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    queueSink = null
                 }
             })
     }

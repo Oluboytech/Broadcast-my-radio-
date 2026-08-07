@@ -78,11 +78,21 @@ class BroadcastEngine {
       EventChannel('ng.soccerhub.bcast/stats');
   static const EventChannel _errorChannel =
       EventChannel('ng.soccerhub.bcast/errors');
+  static const EventChannel _cartChannel =
+      EventChannel('ng.soccerhub.bcast/cart');
+  static const EventChannel _trackChannel =
+      EventChannel('ng.soccerhub.bcast/track');
+  static const EventChannel _queueChannel =
+      EventChannel('ng.soccerhub.bcast/queue');
 
   Stream<StreamStatus>? _statusStream;
+  StreamStatus _lastKnownStatus = StreamStatus.idle;
   Stream<({double mic, double track})>? _levelsStream;
   Stream<StreamStats>? _statsStream;
   Stream<String>? _errorStream;
+  Stream<String?>? _cartStream;
+  Stream<String?>? _trackStream;
+  Stream<List<String>>? _queueStream;
 
   // ---- Commands: Flutter -> Native ----
 
@@ -132,13 +142,20 @@ class BroadcastEngine {
   Stream<StreamStatus> get statusStream {
     _statusStream ??= _statusChannel.receiveBroadcastStream().map((event) {
       final name = event as String;
-      return StreamStatus.values.firstWhere(
+      final status = StreamStatus.values.firstWhere(
         (s) => s.name == name,
         orElse: () => StreamStatus.error,
       );
+      _lastKnownStatus = status;
+      return status;
     });
     return _statusStream!;
   }
+
+  /// Best-known live status without needing an active subscription — used
+  /// for one-off checks (e.g. "is it worth trying to play a cart right now")
+  /// rather than reactive UI updates, which should use [statusStream] instead.
+  bool get currentStatusIsLive => _lastKnownStatus == StreamStatus.live;
 
   Stream<({double mic, double track})> get levelsStream {
     _levelsStream ??= _levelsChannel.receiveBroadcastStream().map((event) {
@@ -162,5 +179,32 @@ class BroadcastEngine {
     _errorStream ??=
         _errorChannel.receiveBroadcastStream().map((event) => event as String);
     return _errorStream!;
+  }
+
+  /// Emits the file path of the currently-playing cart, or null when
+  /// playback finishes — lets the Cart Wall UI show which slot is active.
+  Stream<String?> get cartPlaybackStream {
+    _cartStream ??= _cartChannel
+        .receiveBroadcastStream()
+        .map((event) => event as String?);
+    return _cartStream!;
+  }
+
+  /// Emits the file path of the currently-playing playlist track, or null
+  /// when nothing is playing (queue empty or stopped).
+  Stream<String?> get currentTrackStream {
+    _trackStream ??= _trackChannel
+        .receiveBroadcastStream()
+        .map((event) => event as String?);
+    return _trackStream!;
+  }
+
+  /// Emits the current playlist queue (upcoming tracks, not including
+  /// whatever is currently playing) whenever it changes.
+  Stream<List<String>> get queueStream {
+    _queueStream ??= _queueChannel.receiveBroadcastStream().map(
+          (event) => (event as List).cast<String>(),
+        );
+    return _queueStream!;
   }
 }
