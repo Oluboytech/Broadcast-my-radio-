@@ -37,6 +37,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   String? _currentlyPlayingPath;
   List<String> _liveQueue = [];
   bool _isLoading = true;
+  bool _shuffleEnabled = false;
+  String _repeatMode = 'off'; // 'off', 'repeat_one', 'repeat_all'
+  bool _autoResumeEnabled = false;
+  bool _urlStreamPlaying = false;
+  String? _urlStreamUrl;
 
   @override
   void initState() {
@@ -47,6 +52,20 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     });
     _engine.queueStream.listen((queue) {
       if (mounted) setState(() => _liveQueue = queue);
+    });
+    _engine.urlStreamStateStream.listen((state) {
+      if (mounted) {
+        setState(() {
+          _urlStreamPlaying = state.playing;
+          _urlStreamUrl = state.url;
+        });
+      }
+    });
+    _engine.urlStreamErrorStream.listen((reason) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(reason)));
+      }
     });
   }
 
@@ -63,6 +82,17 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         _library = [];
       }
     }
+    _shuffleEnabled = prefs.getBool('playlist_shuffle') ?? false;
+    _repeatMode = prefs.getString('playlist_repeat_mode') ?? 'off';
+    _autoResumeEnabled = prefs.getBool('playlist_auto_resume') ?? false;
+
+    // Push current state to the native side so it's in sync even if this
+    // is the first time the playlist screen is opened this session.
+    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
+    _engine.setShuffle(_shuffleEnabled);
+    _engine.setRepeatMode(_repeatMode);
+    _engine.setAutoResumeEnabled(_autoResumeEnabled);
+
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -89,11 +119,119 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       }
     });
     await _saveLibrary();
+    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
   }
 
   void _removeTrack(int index) {
     setState(() => _library.removeAt(index));
     _saveLibrary();
+    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
+  }
+
+  Future<void> _toggleShuffle() async {
+    setState(() => _shuffleEnabled = !_shuffleEnabled);
+    _engine.setShuffle(_shuffleEnabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('playlist_shuffle', _shuffleEnabled);
+  }
+
+  Future<void> _cycleRepeatMode() async {
+    final next = switch (_repeatMode) {
+      'off' => 'repeat_all',
+      'repeat_all' => 'repeat_one',
+      _ => 'off',
+    };
+    setState(() => _repeatMode = next);
+    _engine.setRepeatMode(next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('playlist_repeat_mode', next);
+  }
+
+  Future<void> _toggleAutoResume() async {
+    setState(() => _autoResumeEnabled = !_autoResumeEnabled);
+    _engine.setAutoResumeEnabled(_autoResumeEnabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('playlist_auto_resume', _autoResumeEnabled);
+  }
+
+  IconData get _repeatIcon => switch (_repeatMode) {
+        'repeat_one' => Icons.repeat_one,
+        'repeat_all' => Icons.repeat,
+        _ => Icons.repeat,
+      };
+
+  String get _repeatTooltip => switch (_repeatMode) {
+        'repeat_one' => 'Repeat: one track',
+        'repeat_all' => 'Repeat: all tracks',
+        _ => 'Repeat: off',
+      };
+
+  Future<void> _showPlayFromUrlDialog() async {
+    if (!_engine.currentStatusIsLive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Go live from the Studio screen to play a stream URL'),
+        ),
+      );
+      return;
+    }
+
+    final controller = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Play from URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'https://stream.example.com/live.mp3',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.url,
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Direct MP3/AAC stream URLs only — HLS (.m3u8) isn\'t supported yet.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Play'),
+          ),
+        ],
+      ),
+    );
+
+    if (url == null || url.isEmpty) return;
+
+    if (url.toLowerCase().endsWith('.m3u8')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'HLS (.m3u8) streams aren\'t supported yet — only direct MP3/AAC URLs',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    _engine.playUrlStream(url);
   }
 
   void _queueTrack(PlaylistTrack track) {
@@ -137,6 +275,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         title: const Text('Playlist'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.link),
+            tooltip: 'Play from URL',
+            onPressed: _showPlayFromUrlDialog,
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Add tracks',
             onPressed: _addTracks,
@@ -145,6 +288,68 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       ),
       body: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _ControlChip(
+                  icon: Icons.shuffle,
+                  label: 'Shuffle',
+                  active: _shuffleEnabled,
+                  onTap: _toggleShuffle,
+                ),
+                _ControlChip(
+                  icon: _repeatIcon,
+                  label: _repeatMode == 'off'
+                      ? 'Repeat'
+                      : _repeatTooltip.replaceFirst('Repeat: ', ''),
+                  active: _repeatMode != 'off',
+                  onTap: _cycleRepeatMode,
+                ),
+                _ControlChip(
+                  icon: Icons.auto_mode,
+                  label: 'Auto DJ',
+                  active: _autoResumeEnabled,
+                  onTap: _toggleAutoResume,
+                ),
+              ],
+            ),
+          ),
+          if (_urlStreamPlaying)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: Row(
+                children: [
+                  const Icon(Icons.podcasts),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Playing from URL',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        Text(
+                          _urlStreamUrl ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.stop),
+                    tooltip: 'Stop stream',
+                    onPressed: () => _engine.stopUrlStream(),
+                  ),
+                ],
+              ),
+            ),
           if (_currentlyPlayingPath != null)
             Container(
               width: double.infinity,
@@ -244,6 +449,42 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ControlChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _ControlChip({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 2),
+            Text(label, style: TextStyle(color: color, fontSize: 11)),
+          ],
+        ),
       ),
     );
   }

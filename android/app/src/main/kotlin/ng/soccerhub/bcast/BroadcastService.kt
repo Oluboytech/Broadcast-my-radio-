@@ -21,6 +21,7 @@ import ng.soccerhub.bcast.audio.MixTarget
 import ng.soccerhub.bcast.audio.SourceStatus
 import ng.soccerhub.bcast.audio.StreamEncoder
 import ng.soccerhub.bcast.audio.TrackPlayer
+import ng.soccerhub.bcast.audio.UrlStreamPlayer
 
 /**
  * Foreground service that owns the entire live audio pipeline for its lifetime:
@@ -51,6 +52,13 @@ class BroadcastService : Service() {
         const val EXTRA_FORMAT = "format"
         const val EXTRA_BITRATE = "bitrate_kbps"
         const val EXTRA_STATION_NAME = "station_name"
+
+        // Auto-resume silence detection: mic RMS level threshold and how
+        // long it must stay below that threshold before Auto DJ kicks in.
+        // Deliberately low/generous so normal pauses between sentences don't
+        // accidentally trigger it — only genuine "gone quiet for a while".
+        private const val SILENCE_THRESHOLD = 0.03f
+        private const val SILENCE_TRIGGER_MS = 4000L
     }
 
     /** Callbacks the service pushes out — MainActivity forwards these to Flutter's event channels. */
@@ -62,6 +70,8 @@ class BroadcastService : Service() {
         fun onCartPlaybackChanged(filePath: String?)
         fun onTrackChanged(filePath: String?)
         fun onQueueChanged(queue: List<String>)
+        fun onUrlStreamStateChanged(playing: Boolean, url: String?)
+        fun onUrlStreamEnded(reason: String)
     }
 
     inner class LocalBinder : Binder() {
@@ -82,9 +92,17 @@ class BroadcastService : Service() {
     private var sourceClient: IcecastSourceClient? = null
     private var cartPlayer: CartPlayer? = null
     private var trackPlayer: TrackPlayer? = null
+    private var urlStreamPlayer: UrlStreamPlayer? = null
 
     private var liveStartTimeMs: Long = 0
     private var configuredBitrateKbps: Int = 128
+
+    // Auto-resume: when the mic stays below SILENCE_THRESHOLD for
+    // SILENCE_TRIGGER_MS continuously, the playlist auto-starts if idle —
+    // this is the actual "Auto DJ" behavior (fills silence automatically).
+    private var autoResumeEnabled = false
+    private var silenceStartMs: Long = 0
+    private var isBelowSilenceThreshold = false
 
     override fun onCreate() {
         super.onCreate()
@@ -196,7 +214,55 @@ class BroadcastService : Service() {
     fun queueTrack(filePath: String) {
         if (!isLive) return
         ensureTrackPlayer()?.queueTrack(filePath)
-    }    // ---- Lifecycle ----
+    }
+
+    fun setPlaylistLibrary(filePaths: List<String>) {
+        ensureTrackPlayer()?.setLibrary(filePaths)
+    }
+
+    fun setShuffle(enabled: Boolean) {
+        ensureTrackPlayer()?.setShuffle(enabled)
+    }
+
+    fun setRepeatMode(mode: String) {
+        val repeatMode = when (mode) {
+            "repeat_one" -> ng.soccerhub.bcast.audio.RepeatMode.REPEAT_ONE
+            "repeat_all" -> ng.soccerhub.bcast.audio.RepeatMode.REPEAT_ALL
+            else -> ng.soccerhub.bcast.audio.RepeatMode.OFF
+        }
+        ensureTrackPlayer()?.setRepeatMode(repeatMode)
+    }
+
+    fun setAutoResumeEnabled(enabled: Boolean) {
+        autoResumeEnabled = enabled
+    }
+
+    /**
+     * Plays a remote audio stream URL (direct MP3/AAC only — not HLS/.m3u8,
+     * see UrlStreamPlayer's docs) as the mixer bed, continuously until
+     * stopped. Stops the local playlist first since both feed the same
+     * mixer track slot and would otherwise fight over the same ring buffer.
+     */
+    fun playUrlStream(url: String) {
+        if (!isLive || !::mixer.isInitialized) return
+        trackPlayer?.pause()
+        if (urlStreamPlayer == null) {
+            urlStreamPlayer = UrlStreamPlayer(
+                mixer = mixer,
+                onStreamStateChanged = { playing, playingUrl ->
+                    listener?.onUrlStreamStateChanged(playing, playingUrl)
+                },
+                onStreamEnded = { reason -> listener?.onUrlStreamEnded(reason) }
+            )
+        }
+        urlStreamPlayer?.play(url)
+    }
+
+    fun stopUrlStream() {
+        urlStreamPlayer?.stop()
+    }
+
+    // ---- Lifecycle ----
 
     private fun startBroadcast(intent: Intent) {
         if (isLive) return
@@ -272,7 +338,8 @@ class BroadcastService : Service() {
                 encoder.encode(mixed, length)
             },
             onLevel = { level ->
-                listener?.onLevels(level, 0f) // TODO: track level once TrackPlayer exists
+                listener?.onLevels(level, 0f) // TODO: track level once TrackPlayer exposes its own meter
+                checkAutoResume(level)
             }
         )
         if (!audioCapture.start()) {
@@ -286,6 +353,21 @@ class BroadcastService : Service() {
         isLive = true
 
         startStatsTicker()
+    }
+
+    private fun checkAutoResume(micLevel: Float) {
+        if (!autoResumeEnabled || !::mixer.isInitialized) return
+
+        if (micLevel < SILENCE_THRESHOLD) {
+            if (!isBelowSilenceThreshold) {
+                isBelowSilenceThreshold = true
+                silenceStartMs = System.currentTimeMillis()
+            } else if (System.currentTimeMillis() - silenceStartMs >= SILENCE_TRIGGER_MS) {
+                trackPlayer?.autoResumeIfIdle()
+            }
+        } else {
+            isBelowSilenceThreshold = false
+        }
     }
 
     private fun handleSourceStatus(status: SourceStatus) {
@@ -342,9 +424,12 @@ class BroadcastService : Service() {
         cartPlayer = null
         trackPlayer?.stop()
         trackPlayer = null
+        urlStreamPlayer?.stop()
+        urlStreamPlayer = null
         if (::encoder.isInitialized) encoder.stop()
         if (::audioCapture.isInitialized) audioCapture.stop()
         if (::mixer.isInitialized) mixer.reset()
+        isBelowSilenceThreshold = false
 
         listener?.onStatusChanged("idle")
         releaseWakeLock()

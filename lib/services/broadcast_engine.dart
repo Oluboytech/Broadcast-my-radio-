@@ -84,6 +84,10 @@ class BroadcastEngine {
       EventChannel('ng.soccerhub.bcast/track');
   static const EventChannel _queueChannel =
       EventChannel('ng.soccerhub.bcast/queue');
+  static const EventChannel _urlStreamChannel =
+      EventChannel('ng.soccerhub.bcast/urlstream');
+  static const EventChannel _urlStreamErrorChannel =
+      EventChannel('ng.soccerhub.bcast/urlstream_error');
 
   Stream<StreamStatus>? _statusStream;
   StreamStatus _lastKnownStatus = StreamStatus.idle;
@@ -93,6 +97,8 @@ class BroadcastEngine {
   Stream<String?>? _cartStream;
   Stream<String?>? _trackStream;
   Stream<List<String>>? _queueStream;
+  Stream<({bool playing, String? url})>? _urlStreamStateStream;
+  Stream<String>? _urlStreamErrorStream;
 
   // ---- Commands: Flutter -> Native ----
 
@@ -125,6 +131,33 @@ class BroadcastEngine {
 
   Future<void> queueTrack(String filePath) =>
       _methodChannel.invokeMethod('queueTrack', {'filePath': filePath});
+
+  /// Sets the full track library Auto DJ draws from for shuffle/repeat-all
+  /// playback, separate from one-off queueTrack() calls.
+  Future<void> setPlaylistLibrary(List<String> filePaths) =>
+      _methodChannel.invokeMethod('setPlaylistLibrary', {'filePaths': filePaths});
+
+  Future<void> setShuffle(bool enabled) =>
+      _methodChannel.invokeMethod('setShuffle', {'enabled': enabled});
+
+  /// mode: 'off', 'repeat_one', or 'repeat_all'
+  Future<void> setRepeatMode(String mode) =>
+      _methodChannel.invokeMethod('setRepeatMode', {'mode': mode});
+
+  /// When enabled, the playlist automatically starts playing if the mic
+  /// stays quiet for a few seconds and nothing else is already playing —
+  /// the actual "Auto DJ" behavior (fills silence automatically).
+  Future<void> setAutoResumeEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setAutoResumeEnabled', {'enabled': enabled});
+
+  /// Plays a remote audio stream URL (direct MP3/AAC HTTP(S) stream only —
+  /// HLS/.m3u8 isn't supported yet) as the mixer bed. Stops any local
+  /// playlist playback first since both share the same mixer track slot.
+  Future<void> playUrlStream(String url) =>
+      _methodChannel.invokeMethod('playUrlStream', {'url': url});
+
+  Future<void> stopUrlStream() =>
+      _methodChannel.invokeMethod('stopUrlStream');
 
   /// Fire-and-forget instant playback for the cart wall — mixed in immediately
   /// over whatever is currently playing (mic and/or track bed).
@@ -206,5 +239,28 @@ class BroadcastEngine {
           (event) => (event as List).cast<String>(),
         );
     return _queueStream!;
+  }
+
+  /// Emits whether a remote URL stream is currently playing, and which URL.
+  Stream<({bool playing, String? url})> get urlStreamStateStream {
+    _urlStreamStateStream ??=
+        _urlStreamChannel.receiveBroadcastStream().map((event) {
+      final map = event as Map<dynamic, dynamic>;
+      return (
+        playing: map['playing'] as bool? ?? false,
+        url: map['url'] as String?,
+      );
+    });
+    return _urlStreamStateStream!;
+  }
+
+  /// Emits a human-readable reason whenever URL stream playback ends
+  /// unexpectedly (connection lost, unsupported format like .m3u8, etc.) —
+  /// distinct from a normal user-initiated stop.
+  Stream<String> get urlStreamErrorStream {
+    _urlStreamErrorStream ??= _urlStreamErrorChannel
+        .receiveBroadcastStream()
+        .map((event) => event as String);
+    return _urlStreamErrorStream!;
   }
 }

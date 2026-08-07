@@ -9,16 +9,22 @@ import java.nio.ByteOrder
 import java.nio.ShortBuffer
 
 /**
- * Shared decode-and-pace logic for turning a local audio file into PCM
- * pushed to the mixer in roughly real-time. Used by both CartPlayer
- * (fire-and-forget single sounds) and TrackPlayer (queued playlist
- * playback) so the MediaCodec plumbing and overflow-prevention pacing only
- * exist in one place.
+ * Shared decode-and-pace logic for turning a local audio file OR a remote
+ * audio stream URL into PCM pushed to the mixer in roughly real-time. Used
+ * by CartPlayer, TrackPlayer, and UrlStreamPlayer so the MediaCodec
+ * plumbing and overflow-prevention pacing only exist in one place.
  *
- * Supports whatever formats Android's MediaExtractor/MediaCodec support
- * natively (MP3, AAC, WAV, OGG, FLAC) — no bundled codecs needed.
+ * Supports whatever formats/sources Android's MediaExtractor/MediaCodec
+ * support natively:
+ * - Local files: MP3, AAC, WAV, OGG, FLAC
+ * - Remote URLs: direct HTTP(S) MP3/AAC streams (MediaExtractor opens these
+ *   as ordinary network data sources)
  *
- * Does NOT resample — source files should already be 44100Hz to match the
+ * Does NOT support HLS (.m3u8) — that's a playlist format requiring
+ * segment-stitching logic MediaExtractor doesn't provide (would need
+ * ExoPlayer or similar). Tracked as a follow-up, not yet implemented.
+ *
+ * Does NOT resample — source audio should already be 44100Hz to match the
  * pipeline's fixed rate; a mismatch plays back with slightly wrong
  * pitch/speed rather than failing, with a log warning to flag it.
  */
@@ -27,23 +33,29 @@ object FileDecoder {
     private const val TIMEOUT_US = 10_000L
 
     /**
-     * Decodes [filePath] and pushes PCM into [mixer], paced to real-time so
-     * the mixer's ring buffer never overflows regardless of how fast the CPU
-     * decodes. Blocks the calling thread for the duration of playback —
-     * callers run this on their own dedicated thread.
+     * Decodes [source] (a local file path OR an http(s):// URL) and pushes
+     * PCM into [mixer], paced to real-time so the mixer's ring buffer never
+     * overflows regardless of how fast the CPU decodes. Blocks the calling
+     * thread for the duration of playback — callers run this on their own
+     * dedicated thread.
      *
      * [shouldContinue] is polled between chunks so callers can interrupt
-     * playback early (stop/skip) without waiting for the whole file to decode.
-     * Returns true if playback completed naturally (reached end of file),
-     * false if it was stopped early via [shouldContinue] returning false.
+     * playback early (stop/skip) without waiting for the whole file/stream
+     * to finish. Returns true if playback completed naturally (reached end
+     * of file — never happens for a genuinely live stream, which only ends
+     * via [shouldContinue] returning false), false if stopped early.
      */
     fun decodeAndPush(
-        filePath: String,
+        source: String,
         mixer: AudioMixer,
         shouldContinue: () -> Boolean
     ): Boolean {
         val extractor = MediaExtractor()
-        extractor.setDataSource(filePath)
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+            extractor.setDataSource(source, emptyMap())
+        } else {
+            extractor.setDataSource(source)
+        }
 
         var audioTrackIndex = -1
         var format: MediaFormat? = null
@@ -58,7 +70,7 @@ object FileDecoder {
         }
 
         if (audioTrackIndex < 0 || format == null) {
-            Log.e(TAG, "No audio track found in $filePath")
+            Log.e(TAG, "No audio track found in $source")
             extractor.release()
             return false
         }

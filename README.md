@@ -34,6 +34,7 @@ The full mic → mixer → encoder → Icecast pipeline is written and connected
 4. **Cart Wall, Playlist, Library, Settings screens** — UI only exists for Studio so far.
 5. **Release signing config** — currently defaults to debug signing in `build.gradle`; needs a real keystore wired via GitHub Actions secrets (same pattern as StoryVoice's CI).
 6. **MP3 encoder option** — deferred v1 decision: AAC uses Android's built-in `MediaCodec` (zero extra native deps); MP3 would need a bundled LAME/shine `.so` via JNI, a meaningfully bigger CI/build lift. Add later behind the same `StreamEncoder` interface if needed.
+7. **HLS (.m3u8) stream playback** — `UrlStreamPlayer`/`FileDecoder` currently only support direct MP3/AAC HTTP(S) stream URLs. HLS is a playlist format (segments + manifest) that `MediaExtractor` can't parse directly — would need ExoPlayer or similar for segment-stitching. Explicitly out of scope for now; `UrlStreamPlayer.play()` rejects `.m3u8` URLs with a clear error rather than silently failing.
 
 ## Known gaps / things to sanity-check on first real device test
 

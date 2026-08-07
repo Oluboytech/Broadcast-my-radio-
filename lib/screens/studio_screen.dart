@@ -22,6 +22,7 @@ class _StudioScreenState extends State<StudioScreen> {
 
   StreamStatus _status = StreamStatus.idle;
   bool _micMuted = false;
+  bool _pushToTalkMode = false;
   double _micLevel = 0.0;
   double _trackLevel = 0.0;
   double _mixPosition = 0.5; // 0 = mic only, 1 = track only
@@ -104,6 +105,17 @@ class _StudioScreenState extends State<StudioScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
+  }
+
+  void _togglePushToTalkMode() {
+    setState(() {
+      _pushToTalkMode = !_pushToTalkMode;
+      // Switching modes resets to muted — avoids a surprise "mic was already
+      // hot" moment when flipping from toggle mode (which may have been left
+      // unmuted) into push-to-talk (which should always start silent).
+      _micMuted = true;
+    });
+    _engine.setMicMuted(true);
   }
 
   String get _statusLabel {
@@ -226,15 +238,73 @@ class _StudioScreenState extends State<StudioScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Mic mute
-              IconButton.filledTonal(
-                iconSize: 32,
-                onPressed: () {
-                  setState(() => _micMuted = !_micMuted);
-                  _engine.setMicMuted(_micMuted);
-                },
-                icon: Icon(_micMuted ? Icons.mic_off : Icons.mic),
+              // Mic control: toggle-mute or push-to-talk, depending on mode
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _pushToTalkMode
+                      ? GestureDetector(
+                          onTapDown: (_) {
+                            setState(() => _micMuted = false);
+                            _engine.setMicMuted(false);
+                          },
+                          onTapUp: (_) {
+                            setState(() => _micMuted = true);
+                            _engine.setMicMuted(true);
+                          },
+                          onTapCancel: () {
+                            setState(() => _micMuted = true);
+                            _engine.setMicMuted(true);
+                          },
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _micMuted
+                                  ? Theme.of(context).colorScheme.surfaceContainerHighest
+                                  : Colors.redAccent,
+                            ),
+                            child: Icon(
+                              _micMuted ? Icons.mic_off : Icons.mic,
+                              size: 32,
+                              color: _micMuted
+                                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                                  : Colors.white,
+                            ),
+                          ),
+                        )
+                      : IconButton.filledTonal(
+                          iconSize: 32,
+                          onPressed: () {
+                            setState(() => _micMuted = !_micMuted);
+                            _engine.setMicMuted(_micMuted);
+                          },
+                          icon: Icon(_micMuted ? Icons.mic_off : Icons.mic),
+                        ),
+                  const SizedBox(width: 16),
+                  IconButton(
+                    tooltip: _pushToTalkMode
+                        ? 'Push-to-talk (hold to speak)'
+                        : 'Toggle mute',
+                    onPressed: _togglePushToTalkMode,
+                    icon: Icon(
+                      _pushToTalkMode ? Icons.touch_app : Icons.touch_app_outlined,
+                      color: _pushToTalkMode
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                  ),
+                ],
               ),
+              if (_pushToTalkMode)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Hold to talk',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
               const SizedBox(height: 32),
 
               // Crossfader

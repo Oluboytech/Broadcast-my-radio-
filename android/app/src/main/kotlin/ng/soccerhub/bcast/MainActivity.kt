@@ -30,6 +30,8 @@ class MainActivity : FlutterActivity() {
     private val cartChannelName = "ng.soccerhub.bcast/cart"
     private val trackChannelName = "ng.soccerhub.bcast/track"
     private val queueChannelName = "ng.soccerhub.bcast/queue"
+    private val urlStreamChannelName = "ng.soccerhub.bcast/urlstream"
+    private val urlStreamErrorChannelName = "ng.soccerhub.bcast/urlstream_error"
 
     private var statusSink: EventChannel.EventSink? = null
     private var levelsSink: EventChannel.EventSink? = null
@@ -38,6 +40,8 @@ class MainActivity : FlutterActivity() {
     private var cartSink: EventChannel.EventSink? = null
     private var trackSink: EventChannel.EventSink? = null
     private var queueSink: EventChannel.EventSink? = null
+    private var urlStreamSink: EventChannel.EventSink? = null
+    private var urlStreamErrorSink: EventChannel.EventSink? = null
 
     // Event sinks must only be invoked on the main thread — BroadcastService's
     // callbacks arrive from background audio threads, so all forwarding below
@@ -98,6 +102,16 @@ class MainActivity : FlutterActivity() {
 
         override fun onQueueChanged(queue: List<String>) {
             mainHandler.post { queueSink?.success(queue) }
+        }
+
+        override fun onUrlStreamStateChanged(playing: Boolean, url: String?) {
+            mainHandler.post {
+                urlStreamSink?.success(mapOf("playing" to playing, "url" to url))
+            }
+        }
+
+        override fun onUrlStreamEnded(reason: String) {
+            mainHandler.post { urlStreamErrorSink?.success(reason) }
         }
     }
 
@@ -194,6 +208,35 @@ class MainActivity : FlutterActivity() {
                         if (filePath != null) broadcastService?.queueTrack(filePath)
                         result.success(null)
                     }
+                    "setPlaylistLibrary" -> {
+                        val paths = (call.arguments as? Map<*, *>)?.get("filePaths") as? List<*>
+                        broadcastService?.setPlaylistLibrary(paths?.filterIsInstance<String>() ?: emptyList())
+                        result.success(null)
+                    }
+                    "setShuffle" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setShuffle(enabled)
+                        result.success(null)
+                    }
+                    "setRepeatMode" -> {
+                        val mode = (call.arguments as? Map<*, *>)?.get("mode") as? String ?: "off"
+                        broadcastService?.setRepeatMode(mode)
+                        result.success(null)
+                    }
+                    "setAutoResumeEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setAutoResumeEnabled(enabled)
+                        result.success(null)
+                    }
+                    "playUrlStream" -> {
+                        val url = (call.arguments as? Map<*, *>)?.get("url") as? String
+                        if (url != null) broadcastService?.playUrlStream(url)
+                        result.success(null)
+                    }
+                    "stopUrlStream" -> {
+                        broadcastService?.stopUrlStream()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -265,6 +308,26 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     queueSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, urlStreamChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    urlStreamSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    urlStreamSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, urlStreamErrorChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    urlStreamErrorSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    urlStreamErrorSink = null
                 }
             })
     }
