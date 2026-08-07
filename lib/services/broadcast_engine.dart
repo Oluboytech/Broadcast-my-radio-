@@ -88,6 +88,10 @@ class BroadcastEngine {
       EventChannel('ng.soccerhub.bcast/urlstream');
   static const EventChannel _urlStreamErrorChannel =
       EventChannel('ng.soccerhub.bcast/urlstream_error');
+  static const EventChannel _deadAirChannel =
+      EventChannel('ng.soccerhub.bcast/deadair');
+  static const EventChannel _effectsChannel =
+      EventChannel('ng.soccerhub.bcast/effects');
 
   Stream<StreamStatus>? _statusStream;
   StreamStatus _lastKnownStatus = StreamStatus.idle;
@@ -99,6 +103,9 @@ class BroadcastEngine {
   Stream<List<String>>? _queueStream;
   Stream<({bool playing, String? url})>? _urlStreamStateStream;
   Stream<String>? _urlStreamErrorStream;
+  Stream<int>? _deadAirStream;
+  Stream<({bool echoCancellation, bool noiseSuppression, bool autoGain})>?
+      _effectsStream;
 
   // ---- Commands: Flutter -> Native ----
 
@@ -158,6 +165,21 @@ class BroadcastEngine {
 
   Future<void> stopUrlStream() =>
       _methodChannel.invokeMethod('stopUrlStream');
+
+  /// Immediately tears down the entire pipeline with no graceful ramp-down —
+  /// for a single unmistakable "kill it now" action distinct from the
+  /// normal stop button.
+  Future<void> emergencyStop() =>
+      _methodChannel.invokeMethod('emergencyStop');
+
+  Future<void> setEchoCancellationEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setEchoCancellationEnabled', {'enabled': enabled});
+
+  Future<void> setNoiseSuppressionEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setNoiseSuppressionEnabled', {'enabled': enabled});
+
+  Future<void> setAutoGainEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setAutoGainEnabled', {'enabled': enabled});
 
   /// Fire-and-forget instant playback for the cart wall — mixed in immediately
   /// over whatever is currently playing (mic and/or track bed).
@@ -262,5 +284,32 @@ class BroadcastEngine {
         .receiveBroadcastStream()
         .map((event) => event as String);
     return _urlStreamErrorStream!;
+  }
+
+  /// Emits how many seconds of "dead air" (mic silent AND nothing else
+  /// playing) have elapsed, repeating roughly every 5 seconds while it
+  /// continues — a warning signal for the UI, independent of whether
+  /// auto-resume is enabled.
+  Stream<int> get deadAirStream {
+    _deadAirStream ??=
+        _deadAirChannel.receiveBroadcastStream().map((event) => event as int);
+    return _deadAirStream!;
+  }
+
+  /// Reports which built-in Android audio effects (echo cancellation, noise
+  /// suppression, auto gain) are actually available on this device — varies
+  /// by manufacturer, so the UI should reflect real capability rather than
+  /// assume everything is always supported.
+  Stream<({bool echoCancellation, bool noiseSuppression, bool autoGain})>
+      get effectAvailabilityStream {
+    _effectsStream ??= _effectsChannel.receiveBroadcastStream().map((event) {
+      final map = event as Map<dynamic, dynamic>;
+      return (
+        echoCancellation: map['echoCancellation'] as bool? ?? false,
+        noiseSuppression: map['noiseSuppression'] as bool? ?? false,
+        autoGain: map['autoGain'] as bool? ?? false,
+      );
+    });
+    return _effectsStream!;
   }
 }

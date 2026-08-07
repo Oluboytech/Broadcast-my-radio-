@@ -35,6 +35,16 @@ The full mic → mixer → encoder → Icecast pipeline is written and connected
 5. **Release signing config** — currently defaults to debug signing in `build.gradle`; needs a real keystore wired via GitHub Actions secrets (same pattern as StoryVoice's CI).
 6. **MP3 encoder option** — deferred v1 decision: AAC uses Android's built-in `MediaCodec` (zero extra native deps); MP3 would need a bundled LAME/shine `.so` via JNI, a meaningfully bigger CI/build lift. Add later behind the same `StreamEncoder` interface if needed.
 7. **HLS (.m3u8) stream playback** — `UrlStreamPlayer`/`FileDecoder` currently only support direct MP3/AAC HTTP(S) stream URLs. HLS is a playlist format (segments + manifest) that `MediaExtractor` can't parse directly — would need ExoPlayer or similar for segment-stitching. Explicitly out of scope for now; `UrlStreamPlayer.play()` rejects `.m3u8` URLs with a clear error rather than silently failing.
+8. **Voice effects, Equalizer (EQ), Compressor/Limiter** — genuine DSP algorithms, not built-in Android effects like echo cancellation/noise suppression/auto gain (which ARE implemented, see below). These need real signal processing code written from scratch. Prioritized as the next dedicated batch of work.
+9. **Multi-microphone / external USB / Bluetooth mic support** — real but fiddly (device enumeration, hot-swap handling, `AudioDeviceInfo` routing). Not started; would need its own scoped session.
+10. **Headphone/cue monitoring** — would need a second audio output path (`AudioTrack` routed specifically to headphones) separate from the main mixed stream. Not started.
+11. **True mid-track pause/resume** — see TrackPlayer's docs; pause currently restarts from the beginning rather than resuming position, since the decode pipeline doesn't expose seek.
+
+## Broadcasting section — status
+
+Built and wired: Go Live/Stop, ON AIR indicator, mic mute + push-to-talk, gain control (mic + track), crossfade, mixer (mic+track+cart+playlist+URL stream), echo cancellation, noise suppression, auto gain (all three via Android's built-in `AudioEffect` APIs, gracefully degrading per-device based on real hardware support), emergency stop, broadcast timer, dead-air detection (independent of Auto DJ), broadcast history (local, persisted).
+
+Deliberately not built yet (see items 8-11 above): voice effects, EQ, compressor/limiter, multi-mic/USB/Bluetooth routing, headphone cue monitoring, true pause/resume.
 
 ## Known gaps / things to sanity-check on first real device test
 

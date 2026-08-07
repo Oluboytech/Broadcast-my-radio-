@@ -45,4 +45,6 @@ class CartPlayer(
         playbackThread?.interrupt()
         playbackThread = null
     }
+
+    fun isCurrentlyPlaying(): Boolean = isPlaying
 }

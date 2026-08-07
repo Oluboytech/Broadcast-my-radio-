@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -18,6 +21,14 @@ import kotlin.math.sqrt
  * downstream. Mono halves the mixer/encoder workload vs stereo, which is the
  * right tradeoff for a voice-forward radio broadcast app (music beds can still
  * be mixed in mono without meaningfully hurting perceived quality at 128kbps).
+ *
+ * Attaches Android's built-in audio effects (AcousticEchoCanceler,
+ * NoiseSuppressor, AutomaticGainControl) directly to the AudioRecord session
+ * when the device supports them. These run in the platform's own audio DSP
+ * pipeline before we ever read the buffer — no custom signal processing
+ * code needed, and no CPU cost added to our own capture loop. Availability
+ * varies by device/manufacturer; each effect is enabled individually and
+ * silently skipped if unsupported, logged but non-fatal.
  */
 class AudioCaptureManager(
     private val onBuffer: (ShortArray, Int) -> Unit,
@@ -33,6 +44,10 @@ class AudioCaptureManager(
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
 
+    private var echoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var autoGainControl: AutomaticGainControl? = null
+
     @Volatile
     private var isCapturing = false
 
@@ -40,6 +55,12 @@ class AudioCaptureManager(
     private var isMuted = false
 
     private var gain: Float = 1.0f // 0.0 - 1.0, applied before handing buffer to mixer
+
+    // Desired effect states, settable before or during capture — applied
+    // immediately if already capturing, or on the next start() otherwise.
+    private var echoCancellationEnabled = true
+    private var noiseSuppressionEnabled = true
+    private var autoGainEnabled = false // off by default: interacts with manual gain control, so opt-in
 
     private val bufferSizeBytes: Int by lazy {
         val minSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -86,6 +107,7 @@ class AudioCaptureManager(
         }
 
         audioRecord = record
+        attachEffects(record.audioSessionId)
         isCapturing = true
 
         captureThread = Thread(::captureLoop, "MicCaptureThread").apply {
@@ -105,6 +127,8 @@ class AudioCaptureManager(
         captureThread?.join(500)
         captureThread = null
 
+        releaseEffects()
+
         audioRecord?.apply {
             try {
                 stop()
@@ -122,6 +146,69 @@ class AudioCaptureManager(
 
     fun setGain(value: Float) {
         gain = value.coerceIn(0.0f, 1.0f)
+    }
+
+    fun setEchoCancellationEnabled(enabled: Boolean) {
+        echoCancellationEnabled = enabled
+        echoCanceler?.enabled = enabled
+    }
+
+    fun setNoiseSuppressionEnabled(enabled: Boolean) {
+        noiseSuppressionEnabled = enabled
+        noiseSuppressor?.enabled = enabled
+    }
+
+    fun setAutoGainEnabled(enabled: Boolean) {
+        autoGainEnabled = enabled
+        autoGainControl?.enabled = enabled
+    }
+
+    /** Which effects are actually available and active on this device — for UI to reflect real capability, not just the requested setting. */
+    fun getEffectAvailability(): EffectAvailability = EffectAvailability(
+        echoCancellationAvailable = AcousticEchoCanceler.isAvailable(),
+        noiseSuppressionAvailable = NoiseSuppressor.isAvailable(),
+        autoGainAvailable = AutomaticGainControl.isAvailable()
+    )
+
+    private fun attachEffects(audioSessionId: Int) {
+        if (AcousticEchoCanceler.isAvailable()) {
+            try {
+                echoCanceler = AcousticEchoCanceler.create(audioSessionId)?.apply {
+                    enabled = echoCancellationEnabled
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to attach AcousticEchoCanceler", e)
+            }
+        }
+
+        if (NoiseSuppressor.isAvailable()) {
+            try {
+                noiseSuppressor = NoiseSuppressor.create(audioSessionId)?.apply {
+                    enabled = noiseSuppressionEnabled
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to attach NoiseSuppressor", e)
+            }
+        }
+
+        if (AutomaticGainControl.isAvailable()) {
+            try {
+                autoGainControl = AutomaticGainControl.create(audioSessionId)?.apply {
+                    enabled = autoGainEnabled
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to attach AutomaticGainControl", e)
+            }
+        }
+    }
+
+    private fun releaseEffects() {
+        echoCanceler?.release()
+        echoCanceler = null
+        noiseSuppressor?.release()
+        noiseSuppressor = null
+        autoGainControl?.release()
+        autoGainControl = null
     }
 
     private fun captureLoop() {
@@ -182,3 +269,9 @@ class AudioCaptureManager(
         return (rms * 3.0).coerceIn(0.0, 1.0).toFloat()
     }
 }
+
+data class EffectAvailability(
+    val echoCancellationAvailable: Boolean,
+    val noiseSuppressionAvailable: Boolean,
+    val autoGainAvailable: Boolean
+)

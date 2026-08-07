@@ -59,6 +59,12 @@ class BroadcastService : Service() {
         // accidentally trigger it — only genuine "gone quiet for a while".
         private const val SILENCE_THRESHOLD = 0.03f
         private const val SILENCE_TRIGGER_MS = 4000L
+
+        // Dead air detection: distinct from auto-resume — this fires
+        // regardless of whether auto-resume is enabled, warning the
+        // broadcaster that NOTHING is audible (neither mic nor track),
+        // which auto-resume alone wouldn't catch if Auto DJ is off.
+        private const val DEAD_AIR_TRIGGER_MS = 8000L
     }
 
     /** Callbacks the service pushes out — MainActivity forwards these to Flutter's event channels. */
@@ -72,6 +78,8 @@ class BroadcastService : Service() {
         fun onQueueChanged(queue: List<String>)
         fun onUrlStreamStateChanged(playing: Boolean, url: String?)
         fun onUrlStreamEnded(reason: String)
+        fun onDeadAirDetected(silentSeconds: Int)
+        fun onEffectAvailability(echoCancellation: Boolean, noiseSuppression: Boolean, autoGain: Boolean)
     }
 
     inner class LocalBinder : Binder() {
@@ -103,6 +111,14 @@ class BroadcastService : Service() {
     private var autoResumeEnabled = false
     private var silenceStartMs: Long = 0
     private var isBelowSilenceThreshold = false
+
+    // Dead air: tracks how long BOTH mic and track have been silent,
+    // independent of auto-resume's own timer (they use the same mic-level
+    // signal but serve different purposes — one fills silence, the other
+    // just warns the broadcaster it's happening).
+    private var deadAirStartMs: Long = 0
+    private var isInDeadAir = false
+    private var lastDeadAirWarningSeconds = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -137,6 +153,29 @@ class BroadcastService : Service() {
 
     fun setTrackGain(gain: Float) {
         if (::mixer.isInitialized) mixer.setTrackGain(gain)
+    }
+
+    fun setEchoCancellationEnabled(enabled: Boolean) {
+        if (::audioCapture.isInitialized) audioCapture.setEchoCancellationEnabled(enabled)
+    }
+
+    fun setNoiseSuppressionEnabled(enabled: Boolean) {
+        if (::audioCapture.isInitialized) audioCapture.setNoiseSuppressionEnabled(enabled)
+    }
+
+    fun setAutoGainEnabled(enabled: Boolean) {
+        if (::audioCapture.isInitialized) audioCapture.setAutoGainEnabled(enabled)
+    }
+
+    /**
+     * Immediately tears down the entire pipeline — mic, players, encoder,
+     * and the Icecast connection — with no graceful ramp-down. Distinct from
+     * the normal stop (same underlying teardown, but named/exposed
+     * separately so the UI can offer a single unmistakable "kill it now"
+     * action, e.g. for a technical emergency mid-broadcast).
+     */
+    fun emergencyStop() {
+        stopBroadcast()
     }
 
     fun crossfade(target: String, durationMs: Int) {
@@ -340,6 +379,7 @@ class BroadcastService : Service() {
             onLevel = { level ->
                 listener?.onLevels(level, 0f) // TODO: track level once TrackPlayer exposes its own meter
                 checkAutoResume(level)
+                checkDeadAir(level)
             }
         )
         if (!audioCapture.start()) {
@@ -347,6 +387,13 @@ class BroadcastService : Service() {
             stopBroadcast()
             return
         }
+
+        val availability = audioCapture.getEffectAvailability()
+        listener?.onEffectAvailability(
+            availability.echoCancellationAvailable,
+            availability.noiseSuppressionAvailable,
+            availability.autoGainAvailable
+        )
 
         client.connect()
         liveStartTimeMs = System.currentTimeMillis()
@@ -367,6 +414,51 @@ class BroadcastService : Service() {
             }
         } else {
             isBelowSilenceThreshold = false
+        }
+    }
+
+    /**
+     * Dead air = mic is silent AND nothing else is actively playing (no
+     * track, no cart, no URL stream) — genuinely nothing audible going out.
+     * Fires regardless of auto-resume being enabled, since a broadcaster
+     * with auto-resume off still deserves a warning that the stream has
+     * gone silent, even if the app won't fix it automatically.
+     *
+     * Note: track-level metering isn't wired yet (see onLevels' TODO), so
+     * this currently uses "is anything actively playing" as a proxy for
+     * "is the track audible" rather than the track's own RMS level — good
+     * enough to catch the common case (nothing queued, mic silent) even
+     * though it can't yet detect a genuinely-silent passage within a
+     * currently-playing track.
+     */
+    private fun checkDeadAir(micLevel: Float) {
+        val somethingElsePlaying = (cartPlayer?.isCurrentlyPlaying() ?: false) ||
+            (trackPlayer?.let { !it.isIdle() } ?: false) ||
+            (urlStreamPlayer?.isCurrentlyPlaying() ?: false)
+
+        val silent = micLevel < SILENCE_THRESHOLD && !somethingElsePlaying
+
+        if (silent) {
+            if (!isInDeadAir) {
+                isInDeadAir = true
+                deadAirStartMs = System.currentTimeMillis()
+                lastDeadAirWarningSeconds = 0
+            } else {
+                val elapsedMs = System.currentTimeMillis() - deadAirStartMs
+                if (elapsedMs >= DEAD_AIR_TRIGGER_MS) {
+                    val elapsedSeconds = (elapsedMs / 1000).toInt()
+                    // Re-notify every 5 seconds while it continues, rather
+                    // than firing once and going quiet — a broadcaster who
+                    // stepped away needs a repeating nudge, not a single
+                    // toast they might miss.
+                    if (elapsedSeconds - lastDeadAirWarningSeconds >= 5) {
+                        lastDeadAirWarningSeconds = elapsedSeconds
+                        listener?.onDeadAirDetected(elapsedSeconds)
+                    }
+                }
+            }
+        } else {
+            isInDeadAir = false
         }
     }
 
@@ -430,6 +522,8 @@ class BroadcastService : Service() {
         if (::audioCapture.isInitialized) audioCapture.stop()
         if (::mixer.isInitialized) mixer.reset()
         isBelowSilenceThreshold = false
+        isInDeadAir = false
+        lastDeadAirWarningSeconds = 0
 
         listener?.onStatusChanged("idle")
         releaseWakeLock()

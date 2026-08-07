@@ -32,6 +32,8 @@ class MainActivity : FlutterActivity() {
     private val queueChannelName = "ng.soccerhub.bcast/queue"
     private val urlStreamChannelName = "ng.soccerhub.bcast/urlstream"
     private val urlStreamErrorChannelName = "ng.soccerhub.bcast/urlstream_error"
+    private val deadAirChannelName = "ng.soccerhub.bcast/deadair"
+    private val effectsChannelName = "ng.soccerhub.bcast/effects"
 
     private var statusSink: EventChannel.EventSink? = null
     private var levelsSink: EventChannel.EventSink? = null
@@ -42,6 +44,8 @@ class MainActivity : FlutterActivity() {
     private var queueSink: EventChannel.EventSink? = null
     private var urlStreamSink: EventChannel.EventSink? = null
     private var urlStreamErrorSink: EventChannel.EventSink? = null
+    private var deadAirSink: EventChannel.EventSink? = null
+    private var effectsSink: EventChannel.EventSink? = null
 
     // Event sinks must only be invoked on the main thread — BroadcastService's
     // callbacks arrive from background audio threads, so all forwarding below
@@ -112,6 +116,22 @@ class MainActivity : FlutterActivity() {
 
         override fun onUrlStreamEnded(reason: String) {
             mainHandler.post { urlStreamErrorSink?.success(reason) }
+        }
+
+        override fun onDeadAirDetected(silentSeconds: Int) {
+            mainHandler.post { deadAirSink?.success(silentSeconds) }
+        }
+
+        override fun onEffectAvailability(echoCancellation: Boolean, noiseSuppression: Boolean, autoGain: Boolean) {
+            mainHandler.post {
+                effectsSink?.success(
+                    mapOf(
+                        "echoCancellation" to echoCancellation,
+                        "noiseSuppression" to noiseSuppression,
+                        "autoGain" to autoGain
+                    )
+                )
+            }
         }
     }
 
@@ -237,6 +257,25 @@ class MainActivity : FlutterActivity() {
                         broadcastService?.stopUrlStream()
                         result.success(null)
                     }
+                    "emergencyStop" -> {
+                        broadcastService?.emergencyStop()
+                        result.success(null)
+                    }
+                    "setEchoCancellationEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: true
+                        broadcastService?.setEchoCancellationEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setNoiseSuppressionEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: true
+                        broadcastService?.setNoiseSuppressionEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setAutoGainEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setAutoGainEnabled(enabled)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -328,6 +367,26 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     urlStreamErrorSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, deadAirChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    deadAirSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    deadAirSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, effectsChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    effectsSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    effectsSink = null
                 }
             })
     }
