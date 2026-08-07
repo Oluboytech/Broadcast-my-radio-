@@ -1,26 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'theme/broadcastng_theme.dart';
 import 'screens/studio_screen.dart';
 
 void main() {
-  runApp(const ProviderScope(child: BroadcastMyRadioApp()));
+  runApp(const ProviderScope(child: BroadcastNGApp()));
 }
 
-class BroadcastMyRadioApp extends StatelessWidget {
-  const BroadcastMyRadioApp({super.key});
+class BroadcastNGApp extends StatelessWidget {
+  const BroadcastNGApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Broadcast My Radio',
+      title: 'BroadcastNG',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1565C0),
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: BroadcastNGTheme.theme,
       home: const StudioScreen(),
     );
   }

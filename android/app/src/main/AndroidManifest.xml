@@ -26,7 +26,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <application
-        android:label="Broadcast My Radio"
+        android:label="BroadcastNG"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

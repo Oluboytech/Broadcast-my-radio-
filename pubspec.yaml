@@ -1,5 +1,5 @@
 name: broadcast_my_radio
-description: "Broadcast My Radio - live radio studio, mic, and audio player for Icecast/Shoutcast broadcasting."
+description: "BroadcastNG by SoccerHub - live radio studio, mic, and audio player for Icecast/Shoutcast broadcasting."
 publish_to: 'none'
 version: 0.1.0+1
 

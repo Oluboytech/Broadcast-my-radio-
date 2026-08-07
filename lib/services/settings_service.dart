@@ -27,7 +27,7 @@ class SettingsService {
       password: prefs.getString(_kPassword) ?? '',
       format: prefs.getString(_kFormat) ?? 'aac',
       bitrateKbps: prefs.getInt(_kBitrate) ?? 128,
-      stationName: prefs.getString(_kStationName) ?? 'Broadcast My Radio — Live',
+      stationName: prefs.getString(_kStationName) ?? 'BroadcastNG — Live',
     );
   }
 

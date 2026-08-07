@@ -22,7 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _usernameController = TextEditingController(text: 'source');
   final _passwordController = TextEditingController();
   final _stationNameController =
-      TextEditingController(text: 'Broadcast My Radio — Live');
+      TextEditingController(text: 'BroadcastNG — Live');
 
   String _format = 'aac';
   int _bitrateKbps = 128;
@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       format: _format,
       bitrateKbps: _bitrateKbps,
       stationName: _stationNameController.text.trim().isEmpty
-          ? 'Broadcast My Radio — Live'
+          ? 'BroadcastNG — Live'
           : _stationNameController.text.trim(),
     );
 

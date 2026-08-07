@@ -313,7 +313,7 @@ class BroadcastService : Service() {
         val password = intent.getStringExtra(EXTRA_PASSWORD) ?: ""
         val format = intent.getStringExtra(EXTRA_FORMAT) ?: "aac"
         val bitrateKbps = intent.getIntExtra(EXTRA_BITRATE, 128)
-        val stationName = intent.getStringExtra(EXTRA_STATION_NAME) ?: "Broadcast My Radio — Live"
+        val stationName = intent.getStringExtra(EXTRA_STATION_NAME) ?: "BroadcastNG — Live"
 
         if (serverAddress.isNullOrBlank() || mountPoint.isBlank()) {
             listener?.onError("Broadcast server is not configured. Check Settings.")
@@ -537,7 +537,7 @@ class BroadcastService : Service() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "BroadcastMyRadio::StreamWakeLock"
+            "BroadcastNG::StreamWakeLock"
         ).apply {
             setReferenceCounted(false)
             acquire(12 * 60 * 60 * 1000L /* 12 hour safety cap, not indefinite */)
@@ -556,7 +556,7 @@ class BroadcastService : Service() {
                 "Live Broadcast",
                 NotificationManager.IMPORTANCE_LOW // no sound/vibration for a status notification
             ).apply {
-                description = "Shows when Broadcast My Radio is live"
+                description = "Shows when BroadcastNG is live"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -573,7 +573,7 @@ class BroadcastService : Service() {
         )
 
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Broadcast My Radio")
+            .setContentTitle("BroadcastNG")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now) // TODO: replace with app icon asset
             .setOngoing(true)

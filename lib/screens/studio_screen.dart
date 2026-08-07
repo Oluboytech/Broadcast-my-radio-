@@ -4,6 +4,7 @@ import '../services/broadcast_engine.dart';
 import '../services/settings_service.dart';
 import '../services/permission_service.dart';
 import '../services/broadcast_history_service.dart';
+import '../theme/broadcastng_theme.dart';
 import 'settings_screen.dart';
 import 'cart_wall_screen.dart';
 import 'playlist_screen.dart';
@@ -334,16 +335,18 @@ class _StudioScreenState extends State<StudioScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: _statusColor,
-                      shape: BoxShape.circle,
-                    ),
+                    width: 14,
+                    height: 14,
+                    decoration: BroadcastNGTheme.onAirGlow(active: isLive),
                   ),
-                  const SizedBox(width: 8),
-                  Text(_statusLabel,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(width: 10),
+                  Text(
+                    _statusLabel,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          letterSpacing: isLive ? 2 : 0.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
                 ],
               ),
               if (isLive)
@@ -372,14 +375,43 @@ class _StudioScreenState extends State<StudioScreen> {
               GestureDetector(
                 onTap: _toggleLive,
                 child: Container(
-                  width: 140,
-                  height: 140,
+                  width: 148,
+                  height: 148,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isLive ? Colors.redAccent : Colors.blueAccent,
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.3, -0.3),
+                      radius: 1.1,
+                      colors: isLive
+                          ? [
+                              BroadcastNGTheme.onAirRed.withValues(alpha: 0.95),
+                              BroadcastNGTheme.onAirRedDim,
+                            ]
+                          : [
+                              BroadcastNGTheme.panelLight,
+                              BroadcastNGTheme.panelDark,
+                            ],
+                    ),
+                    border: Border.all(
+                      color: BroadcastNGTheme.metalHighlight,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                      if (isLive)
+                        BoxShadow(
+                          color: BroadcastNGTheme.onAirRed.withValues(alpha: 0.5),
+                          blurRadius: 24,
+                          spreadRadius: 2,
+                        ),
+                    ],
                   ),
                   child: Icon(
-                    isLive ? Icons.stop : Icons.podcasts,
+                    isLive ? Icons.stop_rounded : Icons.podcasts,
                     size: 56,
                     color: Colors.white,
                   ),
@@ -420,14 +452,28 @@ class _StudioScreenState extends State<StudioScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: _micMuted
-                                  ? Theme.of(context).colorScheme.surfaceContainerHighest
-                                  : Colors.redAccent,
+                                  ? BroadcastNGTheme.panelMid
+                                  : BroadcastNGTheme.onAirRed,
+                              border: Border.all(
+                                color: BroadcastNGTheme.metalHighlight,
+                                width: 2,
+                              ),
+                              boxShadow: _micMuted
+                                  ? null
+                                  : [
+                                      BoxShadow(
+                                        color: BroadcastNGTheme.onAirRed
+                                            .withValues(alpha: 0.5),
+                                        blurRadius: 14,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
                             ),
                             child: Icon(
                               _micMuted ? Icons.mic_off : Icons.mic,
                               size: 32,
                               color: _micMuted
-                                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                                  ? BroadcastNGTheme.textSecondary
                                   : Colors.white,
                             ),
                           ),
@@ -465,25 +511,29 @@ class _StudioScreenState extends State<StudioScreen> {
                 ),
               const SizedBox(height: 32),
 
-              Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text('MIC'),
-                      Text('TRACK'),
-                    ],
-                  ),
-                  Slider(
-                    value: _mixPosition,
-                    onChanged: (value) {
-                      setState(() => _mixPosition = value);
-                      _engine.crossfade(
-                        value < 0.5 ? MixTarget.mic : MixTarget.track,
-                      );
-                    },
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BroadcastNGTheme.consolePanel(),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Text('MIC'),
+                        Text('TRACK'),
+                      ],
+                    ),
+                    Slider(
+                      value: _mixPosition,
+                      onChanged: (value) {
+                        setState(() => _mixPosition = value);
+                        _engine.crossfade(
+                          value < 0.5 ? MixTarget.mic : MixTarget.track,
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -549,19 +599,43 @@ class _LevelMeter extends StatelessWidget {
 
   const _LevelMeter({required this.label, required this.level});
 
+  static const int _segmentCount = 16;
+
   @override
   Widget build(BuildContext context) {
+    final litSegments = (level.clamp(0.0, 1.0) * _segmentCount).round();
+
     return Column(
       children: [
         Text(label, style: Theme.of(context).textTheme.labelSmall),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: level.clamp(0.0, 1.0),
-            minHeight: 12,
-            backgroundColor: Colors.white12,
-            color: level > 0.85 ? Colors.redAccent : Colors.greenAccent,
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BroadcastNGTheme.consolePanel(
+            base: BroadcastNGTheme.consoleBlack,
+            radius: 4,
+            raised: false,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_segmentCount, (i) {
+              final isLit = i < litSegments;
+              final fraction = i / _segmentCount;
+              final segmentColor = fraction > 0.85
+                  ? BroadcastNGTheme.onAirRed
+                  : fraction > 0.65
+                      ? BroadcastNGTheme.meterAmber
+                      : BroadcastNGTheme.meterGreen;
+              return Expanded(
+                child: Container(
+                  height: 14,
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  color: isLit
+                      ? segmentColor
+                      : BroadcastNGTheme.panelMid.withValues(alpha: 0.5),
+                ),
+              );
+            }),
           ),
         ),
       ],

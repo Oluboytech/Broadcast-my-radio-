@@ -65,7 +65,15 @@ class IcecastConfig {
 /// encoding, and the Icecast source connection independently of the Flutter UI
 /// lifecycle — this class just sends commands and listens for events.
 class BroadcastEngine {
-  BroadcastEngine._internal();
+  BroadcastEngine._internal() {
+    // Subscribe to our own status stream immediately on construction, so
+    // currentStatusIsLive is always accurate — previously this only updated
+    // when *some* screen happened to be listening to statusStream (e.g.
+    // Studio), which meant currentStatusIsLive could silently report stale
+    // data if Playlist/Cart Wall were opened without Studio's subscription
+    // active first, making play/queue buttons look broken with no error.
+    statusStream.listen((_) {});
+  }
   static final BroadcastEngine instance = BroadcastEngine._internal();
 
   static const MethodChannel _methodChannel =
