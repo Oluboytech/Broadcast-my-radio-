@@ -255,8 +255,21 @@ class BroadcastService : Service() {
         ensureTrackPlayer()?.queueTrack(filePath)
     }
 
-    fun setPlaylistLibrary(filePaths: List<String>) {
-        ensureTrackPlayer()?.setLibrary(filePaths)
+    /**
+     * Sets the Auto DJ library. [tracksData] is a list of maps with keys
+     * "filePath", "artist" (optional), "category" (optional) — passed as
+     * raw maps across the platform channel boundary rather than a typed
+     * object, then converted to TrackMetadata here.
+     */
+    fun setPlaylistLibrary(tracksData: List<Map<String, String?>>) {
+        val tracks = tracksData.map {
+            ng.soccerhub.bcast.audio.TrackMetadata(
+                filePath = it["filePath"] ?: "",
+                artist = it["artist"] ?: "",
+                category = it["category"] ?: ""
+            )
+        }.filter { it.filePath.isNotBlank() }
+        ensureTrackPlayer()?.setLibrary(tracks)
     }
 
     fun setShuffle(enabled: Boolean) {
@@ -270,6 +283,26 @@ class BroadcastService : Service() {
             else -> ng.soccerhub.bcast.audio.RepeatMode.OFF
         }
         ensureTrackPlayer()?.setRepeatMode(repeatMode)
+    }
+
+    fun setRepeatProtectionEnabled(enabled: Boolean) {
+        ensureTrackPlayer()?.setRepeatProtectionEnabled(enabled)
+    }
+
+    fun setArtistSeparationEnabled(enabled: Boolean) {
+        ensureTrackPlayer()?.setArtistSeparationEnabled(enabled)
+    }
+
+    fun setCategoryRotationEnabled(enabled: Boolean) {
+        ensureTrackPlayer()?.setCategoryRotationEnabled(enabled)
+    }
+
+    fun setAutoCrossfadeEnabled(enabled: Boolean) {
+        ensureTrackPlayer()?.setAutoCrossfadeEnabled(enabled)
+    }
+
+    fun setAutoLevelingEnabled(enabled: Boolean) {
+        ensureTrackPlayer()?.setAutoLevelingEnabled(enabled)
     }
 
     fun setAutoResumeEnabled(enabled: Boolean) {

@@ -148,9 +148,12 @@ class BroadcastEngine {
       _methodChannel.invokeMethod('queueTrack', {'filePath': filePath});
 
   /// Sets the full track library Auto DJ draws from for shuffle/repeat-all
-  /// playback, separate from one-off queueTrack() calls.
-  Future<void> setPlaylistLibrary(List<String> filePaths) =>
-      _methodChannel.invokeMethod('setPlaylistLibrary', {'filePaths': filePaths});
+  /// and rotation-rule playback, separate from one-off queueTrack() calls.
+  /// Each map should have keys 'filePath' (required), 'artist' (optional,
+  /// used by artist separation), 'category' (optional, used by category
+  /// rotation).
+  Future<void> setPlaylistLibrary(List<Map<String, String>> tracks) =>
+      _methodChannel.invokeMethod('setPlaylistLibrary', {'tracks': tracks});
 
   Future<void> setShuffle(bool enabled) =>
       _methodChannel.invokeMethod('setShuffle', {'enabled': enabled});
@@ -158,6 +161,34 @@ class BroadcastEngine {
   /// mode: 'off', 'repeat_one', or 'repeat_all'
   Future<void> setRepeatMode(String mode) =>
       _methodChannel.invokeMethod('setRepeatMode', {'mode': mode});
+
+  /// Won't replay a track that played within the last several selections,
+  /// even with shuffle on.
+  Future<void> setRepeatProtectionEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setRepeatProtectionEnabled', {'enabled': enabled});
+
+  /// Won't play two tracks by the same artist back to back, when artist
+  /// metadata is provided in the library.
+  Future<void> setArtistSeparationEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setArtistSeparationEnabled', {'enabled': enabled});
+
+  /// Rotates proportionally across categories (e.g. music/jingle/ad) rather
+  /// than picking uniformly at random, when category metadata is provided.
+  Future<void> setCategoryRotationEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setCategoryRotationEnabled', {'enabled': enabled});
+
+  /// NOTE: accepted and stored, but track-to-track overlap isn't wired to
+  /// real audio yet — the mixer doesn't yet support two simultaneous
+  /// independently-leveled track sources. Tracks still advance with a clean
+  /// cut regardless of this setting for now.
+  Future<void> setAutoCrossfadeEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setAutoCrossfadeEnabled', {'enabled': enabled});
+
+  /// Applies a lightweight real-time adaptive gain normalizer to playlist
+  /// tracks so quiet and loud tracks don't jar the listener back to back.
+  /// Not true LUFS loudness normalization — see FileDecoder's docs.
+  Future<void> setAutoLevelingEnabled(bool enabled) => _methodChannel
+      .invokeMethod('setAutoLevelingEnabled', {'enabled': enabled});
 
   /// When enabled, the playlist automatically starts playing if the mic
   /// stays quiet for a few seconds and nothing else is already playing —

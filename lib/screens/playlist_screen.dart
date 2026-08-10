@@ -7,21 +7,43 @@ import '../services/broadcast_engine.dart';
 class PlaylistTrack {
   final String filePath;
   final String label;
+  final String artist;
+  final String category;
 
-  const PlaylistTrack({required this.filePath, required this.label});
+  const PlaylistTrack({
+    required this.filePath,
+    required this.label,
+    this.artist = '',
+    this.category = '',
+  });
 
-  Map<String, dynamic> toJson() => {'filePath': filePath, 'label': label};
+  Map<String, dynamic> toJson() => {
+        'filePath': filePath,
+        'label': label,
+        'artist': artist,
+        'category': category,
+      };
 
   factory PlaylistTrack.fromJson(Map<String, dynamic> json) => PlaylistTrack(
         filePath: json['filePath'] as String,
         label: json['label'] as String,
+        artist: json['artist'] as String? ?? '',
+        category: json['category'] as String? ?? '',
+      );
+
+  PlaylistTrack copyWith({String? artist, String? category}) => PlaylistTrack(
+        filePath: filePath,
+        label: label,
+        artist: artist ?? this.artist,
+        category: category ?? this.category,
       );
 }
 
 /// Playlist / Auto DJ screen: a queue of tracks that plays continuously as
-/// the background bed, auto-advancing when each track finishes. Distinct
-/// from Cart Wall's fire-and-forget single sounds — this is ongoing
-/// playback the mic talks over.
+/// the background bed, auto-advancing when each track finishes, with
+/// rotation rules (repeat protection, artist separation, category
+/// rotation) to keep automated playback feeling like a real station rather
+/// than a naive shuffle.
 class PlaylistScreen extends StatefulWidget {
   const PlaylistScreen({super.key});
 
@@ -37,9 +59,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   String? _currentlyPlayingPath;
   List<String> _liveQueue = [];
   bool _isLoading = true;
+
   bool _shuffleEnabled = false;
-  String _repeatMode = 'off'; // 'off', 'repeat_one', 'repeat_all'
+  String _repeatMode = 'off';
   bool _autoResumeEnabled = false;
+  bool _repeatProtectionEnabled = true;
+  bool _artistSeparationEnabled = true;
+  bool _categoryRotationEnabled = false;
+  bool _autoCrossfadeEnabled = false;
+  bool _autoLevelingEnabled = false;
+
   bool _urlStreamPlaying = false;
   String? _urlStreamUrl;
 
@@ -85,15 +114,35 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     _shuffleEnabled = prefs.getBool('playlist_shuffle') ?? false;
     _repeatMode = prefs.getString('playlist_repeat_mode') ?? 'off';
     _autoResumeEnabled = prefs.getBool('playlist_auto_resume') ?? false;
+    _repeatProtectionEnabled = prefs.getBool('playlist_repeat_protection') ?? true;
+    _artistSeparationEnabled = prefs.getBool('playlist_artist_separation') ?? true;
+    _categoryRotationEnabled = prefs.getBool('playlist_category_rotation') ?? false;
+    _autoCrossfadeEnabled = prefs.getBool('playlist_auto_crossfade') ?? false;
+    _autoLevelingEnabled = prefs.getBool('playlist_auto_leveling') ?? false;
 
-    // Push current state to the native side so it's in sync even if this
-    // is the first time the playlist screen is opened this session.
-    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
+    _pushLibraryToNative();
     _engine.setShuffle(_shuffleEnabled);
     _engine.setRepeatMode(_repeatMode);
     _engine.setAutoResumeEnabled(_autoResumeEnabled);
+    _engine.setRepeatProtectionEnabled(_repeatProtectionEnabled);
+    _engine.setArtistSeparationEnabled(_artistSeparationEnabled);
+    _engine.setCategoryRotationEnabled(_categoryRotationEnabled);
+    _engine.setAutoCrossfadeEnabled(_autoCrossfadeEnabled);
+    _engine.setAutoLevelingEnabled(_autoLevelingEnabled);
 
     if (mounted) setState(() => _isLoading = false);
+  }
+
+  void _pushLibraryToNative() {
+    _engine.setPlaylistLibrary(
+      _library
+          .map((t) => {
+                'filePath': t.filePath,
+                'artist': t.artist,
+                'category': t.category,
+              })
+          .toList(),
+    );
   }
 
   Future<void> _saveLibrary() async {
@@ -119,13 +168,70 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       }
     });
     await _saveLibrary();
-    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
+    _pushLibraryToNative();
   }
 
   void _removeTrack(int index) {
     setState(() => _library.removeAt(index));
     _saveLibrary();
-    _engine.setPlaylistLibrary(_library.map((t) => t.filePath).toList());
+    _pushLibraryToNative();
+  }
+
+  Future<void> _editTrackMetadata(int index) async {
+    final track = _library[index];
+    final artistController = TextEditingController(text: track.artist);
+    final categoryController = TextEditingController(text: track.category);
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(track.label),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: artistController,
+              decoration: const InputDecoration(
+                labelText: 'Artist',
+                helperText: 'Used for artist separation',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Category',
+                hintText: 'e.g. music, jingle, ad',
+                helperText: 'Used for category rotation',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      setState(() {
+        _library[index] = track.copyWith(
+          artist: artistController.text.trim(),
+          category: categoryController.text.trim(),
+        );
+      });
+      await _saveLibrary();
+      _pushLibraryToNative();
+    }
   }
 
   Future<void> _toggleShuffle() async {
@@ -152,6 +258,19 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     _engine.setAutoResumeEnabled(_autoResumeEnabled);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('playlist_auto_resume', _autoResumeEnabled);
+  }
+
+  Future<void> _toggleSetting(
+    String prefsKey,
+    bool previousValue,
+    void Function(bool) applyToState,
+    Future<void> Function(bool) applyToEngine,
+  ) async {
+    final newValue = !previousValue;
+    setState(() => applyToState(newValue));
+    await applyToEngine(newValue);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, newValue);
   }
 
   IconData get _repeatIcon => switch (_repeatMode) {
@@ -274,6 +393,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       appBar: AppBar(
         title: const Text('Playlist'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Rotation rules',
+            onPressed: _showRotationRulesSheet,
+          ),
           IconButton(
             icon: const Icon(Icons.link),
             tooltip: 'Play from URL',
@@ -416,6 +540,10 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     itemBuilder: (context, index) {
                       final track = _library[index];
                       final isPlaying = track.filePath == _currentlyPlayingPath;
+                      final subtitleParts = [
+                        if (track.artist.isNotEmpty) track.artist,
+                        if (track.category.isNotEmpty) track.category,
+                      ];
                       return ListTile(
                         leading: Icon(
                           isPlaying ? Icons.graphic_eq : Icons.music_note,
@@ -424,6 +552,10 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               : null,
                         ),
                         title: Text(track.label),
+                        subtitle: subtitleParts.isNotEmpty
+                            ? Text(subtitleParts.join(' • '))
+                            : null,
+                        onTap: () => _editTrackMetadata(index),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -449,6 +581,97 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showRotationRulesSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          Widget rotationSwitch({
+            required String title,
+            required String subtitle,
+            required bool value,
+            required String prefsKey,
+            required void Function(bool) applyToState,
+            required Future<void> Function(bool) applyToEngine,
+          }) {
+            return SwitchListTile(
+              title: Text(title),
+              subtitle: Text(subtitle),
+              value: value,
+              onChanged: (v) async {
+                await _toggleSetting(prefsKey, value, applyToState, applyToEngine);
+                setSheetState(() {});
+              },
+            );
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 16, bottom: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'Auto DJ rotation rules',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  rotationSwitch(
+                    title: 'Song repeat protection',
+                    subtitle:
+                        'Avoid replaying a recently-played track, even with shuffle on',
+                    value: _repeatProtectionEnabled,
+                    prefsKey: 'playlist_repeat_protection',
+                    applyToState: (v) => _repeatProtectionEnabled = v,
+                    applyToEngine: _engine.setRepeatProtectionEnabled,
+                  ),
+                  rotationSwitch(
+                    title: 'Artist separation',
+                    subtitle: 'Avoid playing the same artist twice in a row',
+                    value: _artistSeparationEnabled,
+                    prefsKey: 'playlist_artist_separation',
+                    applyToState: (v) => _artistSeparationEnabled = v,
+                    applyToEngine: _engine.setArtistSeparationEnabled,
+                  ),
+                  rotationSwitch(
+                    title: 'Category rotation',
+                    subtitle:
+                        'Rotate music/jingles/ads proportionally, not purely at random. Set a track\'s category by tapping it.',
+                    value: _categoryRotationEnabled,
+                    prefsKey: 'playlist_category_rotation',
+                    applyToState: (v) => _categoryRotationEnabled = v,
+                    applyToEngine: _engine.setCategoryRotationEnabled,
+                  ),
+                  rotationSwitch(
+                    title: 'Auto volume leveling',
+                    subtitle:
+                        'Normalize loudness across tracks so quiet/loud songs don\'t jar listeners',
+                    value: _autoLevelingEnabled,
+                    prefsKey: 'playlist_auto_leveling',
+                    applyToState: (v) => _autoLevelingEnabled = v,
+                    applyToEngine: _engine.setAutoLevelingEnabled,
+                  ),
+                  rotationSwitch(
+                    title: 'Auto crossfade',
+                    subtitle:
+                        'Not yet live — accepted but track transitions still use a clean cut for now',
+                    value: _autoCrossfadeEnabled,
+                    prefsKey: 'playlist_auto_crossfade',
+                    applyToState: (v) => _autoCrossfadeEnabled = v,
+                    applyToEngine: _engine.setAutoCrossfadeEnabled,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

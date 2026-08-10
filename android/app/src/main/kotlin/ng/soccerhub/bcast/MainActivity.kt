@@ -229,8 +229,16 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "setPlaylistLibrary" -> {
-                        val paths = (call.arguments as? Map<*, *>)?.get("filePaths") as? List<*>
-                        broadcastService?.setPlaylistLibrary(paths?.filterIsInstance<String>() ?: emptyList())
+                        val tracksRaw = (call.arguments as? Map<*, *>)?.get("tracks") as? List<*>
+                        val tracks = tracksRaw?.mapNotNull { entry ->
+                            val map = entry as? Map<*, *> ?: return@mapNotNull null
+                            mapOf(
+                                "filePath" to (map["filePath"] as? String ?: ""),
+                                "artist" to (map["artist"] as? String ?: ""),
+                                "category" to (map["category"] as? String ?: "")
+                            )
+                        } ?: emptyList()
+                        broadcastService?.setPlaylistLibrary(tracks)
                         result.success(null)
                     }
                     "setShuffle" -> {
@@ -241,6 +249,31 @@ class MainActivity : FlutterActivity() {
                     "setRepeatMode" -> {
                         val mode = (call.arguments as? Map<*, *>)?.get("mode") as? String ?: "off"
                         broadcastService?.setRepeatMode(mode)
+                        result.success(null)
+                    }
+                    "setRepeatProtectionEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: true
+                        broadcastService?.setRepeatProtectionEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setArtistSeparationEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: true
+                        broadcastService?.setArtistSeparationEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setCategoryRotationEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setCategoryRotationEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setAutoCrossfadeEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setAutoCrossfadeEnabled(enabled)
+                        result.success(null)
+                    }
+                    "setAutoLevelingEnabled" -> {
+                        val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean ?: false
+                        broadcastService?.setAutoLevelingEnabled(enabled)
                         result.success(null)
                     }
                     "setAutoResumeEnabled" -> {

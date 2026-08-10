@@ -44,11 +44,21 @@ object FileDecoder {
      * to finish. Returns true if playback completed naturally (reached end
      * of file — never happens for a genuinely live stream, which only ends
      * via [shouldContinue] returning false), false if stopped early.
+     *
+     * [autoLevelingEnabled] applies a lightweight adaptive gain normalizer:
+     * tracks a running RMS estimate as the file plays and nudges gain toward
+     * a target loudness, so a quiet track and a loud track played back to
+     * back don't jar the listener. This is NOT true LUFS/EBU R128 loudness
+     * normalization (that needs a full-file analysis pass before playback
+     * starts, adding latency) — it's a simpler real-time approximation that
+     * converges over the first second or two of each track, which is a
+     * reasonable tradeoff for a live radio bed track.
      */
     fun decodeAndPush(
         source: String,
         mixer: AudioMixer,
-        shouldContinue: () -> Boolean
+        shouldContinue: () -> Boolean,
+        autoLevelingEnabled: Boolean = false
     ): Boolean {
         val extractor = MediaExtractor()
         if (source.startsWith("http://") || source.startsWith("https://")) {
@@ -92,6 +102,7 @@ object FileDecoder {
 
         val playbackStartNanos = System.nanoTime()
         var samplesPushedSoFar = 0L
+        val leveler = if (autoLevelingEnabled) AdaptiveLeveler() else null
 
         try {
             while (!sawOutputEOS && shouldContinue()) {
@@ -115,6 +126,7 @@ object FileDecoder {
                     if (bufferInfo.size > 0) {
                         val outputBuffer = codec.getOutputBuffer(outputIndex)!!
                         val pcmChunk = extractPcmShorts(outputBuffer, bufferInfo, sourceChannelCount)
+                        leveler?.applyInPlace(pcmChunk)
 
                         val targetElapsedNanos =
                             (samplesPushedSoFar * 1_000_000_000L) / AudioCaptureManager.SAMPLE_RATE
@@ -187,6 +199,48 @@ object FileDecoder {
                 out[i] = (sum / sourceChannelCount).toShort()
             }
             out
+        }
+    }
+}
+
+/**
+ * Lightweight real-time adaptive gain normalizer — NOT true loudness
+ * normalization (LUFS/EBU R128), which requires analyzing the whole file
+ * before playback to compute an accurate integrated loudness value. This
+ * instead tracks a running RMS estimate as audio streams through and nudges
+ * gain toward a target level, converging over roughly the first second or
+ * two of a track. Good enough to stop a noticeably-quiet track from feeling
+ * jarring next to a noticeably-loud one, without adding pre-scan latency
+ * before playback starts — the right tradeoff for a live radio bed track
+ * where "starts playing immediately" matters more than perfect precision.
+ */
+private class AdaptiveLeveler {
+    // Target RMS chosen to sit comfortably below clipping headroom while
+    // still being a healthy, audible level for a music/voice bed track.
+    private val targetRms = 0.15
+    private var currentGain = 1.0
+    private val maxGain = 4.0 // cap how much a very quiet track can be boosted
+    private val minGain = 0.25 // cap how much a very loud track can be cut
+    private val adaptRate = 0.08 // how quickly gain converges per chunk (0-1)
+
+    fun applyInPlace(buffer: ShortArray) {
+        if (buffer.isEmpty()) return
+
+        var sumSquares = 0.0
+        for (sample in buffer) {
+            val normalized = sample / 32768.0
+            sumSquares += normalized * normalized
+        }
+        val rms = kotlin.math.sqrt(sumSquares / buffer.size)
+
+        if (rms > 0.0001) { // avoid adjusting gain during near-silence
+            val desiredGain = (targetRms / rms).coerceIn(minGain, maxGain)
+            currentGain += (desiredGain - currentGain) * adaptRate
+        }
+
+        for (i in buffer.indices) {
+            val leveled = (buffer[i] * currentGain).toInt()
+            buffer[i] = leveled.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
     }
 }
