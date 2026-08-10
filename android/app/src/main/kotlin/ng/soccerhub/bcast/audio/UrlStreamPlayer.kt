@@ -43,7 +43,7 @@ class UrlStreamPlayer(
         playbackThread = Thread({
             var completedNaturally = false
             try {
-                completedNaturally = FileDecoder.decodeAndPush(url, mixer) { isPlaying }
+                completedNaturally = FileDecoder.decodeAndPush(url, mixer, { isPlaying })
             } catch (e: Exception) {
                 Log.e(TAG, "URL stream playback failed for $url", e)
                 onStreamEnded("Connection to stream lost: ${e.message ?: "unknown error"}")

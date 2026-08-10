@@ -30,7 +30,7 @@ class CartPlayer(
         isPlaying = true
         playbackThread = Thread({
             try {
-                FileDecoder.decodeAndPush(filePath, mixer) { isPlaying }
+                FileDecoder.decodeAndPush(filePath, mixer, { isPlaying })
             } catch (e: Exception) {
                 Log.e(TAG, "Cart playback failed for $filePath", e)
             } finally {
