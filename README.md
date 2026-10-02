@@ -162,3 +162,7 @@ The app cannot create an Apple Podcasts or Spotify account on behalf of the broa
 - Existing native noise suppression remains available for live/recorded microphone capture.
 
 Production note: the editor stores non-destructive edit instructions and automation assets. A final offline render/export pipeline still needs to be connected to the publishing backend/native media processor for destructive audio rendering.
+
+## Build troubleshooting
+
+The Professional Studio v0.4 source includes the podcast edit-operation model and uses `Future<File>` for RSS export, matching `PodcastService.generateRssFeed()`. The Ads and Shows/Hosts views are complete Dart widget expressions.

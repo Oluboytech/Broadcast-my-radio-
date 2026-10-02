@@ -27,7 +27,7 @@ class PodcastPublishingService {
     await prefs.setString(_configKey, jsonEncode(config.toJson()));
   }
 
-  Future<String> exportRss(PodcastPublishingConfig config) =>
+  Future<File> exportRss(PodcastPublishingConfig config) =>
       podcasts.generateRssFeed(baseUrl: config.rssBaseUrl.isNotEmpty ? config.rssBaseUrl : 'https://example.com');
 
   Future<PodcastEpisode> uploadEpisode(PodcastEpisode episode) async {
