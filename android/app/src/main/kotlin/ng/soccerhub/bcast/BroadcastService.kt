@@ -22,6 +22,8 @@ import ng.soccerhub.bcast.audio.SourceStatus
 import ng.soccerhub.bcast.audio.StreamEncoder
 import ng.soccerhub.bcast.audio.TrackPlayer
 import ng.soccerhub.bcast.audio.UrlStreamPlayer
+import ng.soccerhub.bcast.audio.WavRecorder
+import java.io.File
 
 /**
  * Foreground service that owns the entire live audio pipeline for its lifetime:
@@ -43,6 +45,9 @@ class BroadcastService : Service() {
 
         const val ACTION_START = "ng.soccerhub.bcast.action.START"
         const val ACTION_STOP = "ng.soccerhub.bcast.action.STOP"
+        const val ACTION_START_PODCAST = "ng.soccerhub.bcast.action.START_PODCAST"
+        const val ACTION_STOP_PODCAST = "ng.soccerhub.bcast.action.STOP_PODCAST"
+        const val EXTRA_PODCAST_TITLE = "podcast_title"
 
         const val EXTRA_SERVER_ADDRESS = "server_address"
         const val EXTRA_PORT = "port"
@@ -80,6 +85,7 @@ class BroadcastService : Service() {
         fun onUrlStreamEnded(reason: String)
         fun onDeadAirDetected(silentSeconds: Int)
         fun onEffectAvailability(echoCancellation: Boolean, noiseSuppression: Boolean, autoGain: Boolean)
+        fun onPodcastState(recording: Boolean, filePath: String?, durationSeconds: Int)
     }
 
     inner class LocalBinder : Binder() {
@@ -104,6 +110,10 @@ class BroadcastService : Service() {
 
     private var liveStartTimeMs: Long = 0
     private var configuredBitrateKbps: Int = 128
+    @Volatile private var isPodcastRecording = false
+    private var podcastRecorder: WavRecorder? = null
+    private var podcastStartTimeMs: Long = 0
+    private var podcastTitle: String = "Untitled Episode"
 
     // Auto-resume: when the mic stays below SILENCE_THRESHOLD for
     // SILENCE_TRIGGER_MS continuously, the playlist auto-starts if idle —
@@ -130,6 +140,8 @@ class BroadcastService : Service() {
         when (intent?.action) {
             ACTION_START -> intent.let { startBroadcast(it) }
             ACTION_STOP -> stopBroadcast()
+            ACTION_START_PODCAST -> intent.let { startPodcastRecording(it.getStringExtra(EXTRA_PODCAST_TITLE)) }
+            ACTION_STOP_PODCAST -> stopPodcastRecording()
         }
         // START_STICKY: if the system kills the service under memory pressure,
         // it will attempt to recreate it. Note this alone does not resume a
@@ -334,6 +346,92 @@ class BroadcastService : Service() {
         urlStreamPlayer?.stop()
     }
 
+
+    fun isPodcastRecording(): Boolean = isPodcastRecording
+
+    fun startPodcastRecording(title: String?) {
+        if (isPodcastRecording) return
+        podcastTitle = title?.takeIf { it.isNotBlank() } ?: "Untitled Episode"
+        val notification = buildNotification("Recording podcast")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        if (!ensureAudioCapture()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        val dir = File(filesDir, "podcasts")
+        val safe = podcastTitle.replace(Regex("[^A-Za-z0-9._-]+"), "_").take(60).ifBlank { "episode" }
+        val file = File(dir, "${System.currentTimeMillis()}_${safe}.wav")
+        podcastRecorder = WavRecorder(file)
+        podcastRecorder?.start()
+        isPodcastRecording = true
+        podcastStartTimeMs = System.currentTimeMillis()
+        listener?.onPodcastState(true, file.absolutePath, 0)
+        updateNotification("Recording podcast")
+    }
+
+    fun stopPodcastRecording(): String? {
+        if (!isPodcastRecording) return null
+        isPodcastRecording = false
+        val file = podcastRecorder?.stop()?.absolutePath
+        podcastRecorder = null
+        val duration = ((System.currentTimeMillis() - podcastStartTimeMs) / 1000).toInt()
+        listener?.onPodcastState(false, file, duration)
+        if (!isLive) {
+            stopAudioCapture()
+            releaseWakeLock()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        } else {
+            updateNotification("You are live")
+        }
+        return file
+    }
+
+    private fun ensureAudioCapture(): Boolean {
+        if (::audioCapture.isInitialized) return true
+        if (!::mixer.isInitialized) mixer = AudioMixer()
+        val capture = AudioCaptureManager(
+            onBuffer = { micBuffer, length ->
+                val mixed = mixer.mix(micBuffer, length)
+                if (isPodcastRecording) podcastRecorder?.write(mixed, length)
+                if (isLive && ::encoder.isInitialized) encoder.encode(mixed, length)
+            },
+            onLevel = { level ->
+                listener?.onLevels(level, 0f)
+                checkAutoResume(level)
+                checkDeadAir(level)
+            }
+        )
+        audioCapture = capture
+        if (!capture.start()) {
+            listener?.onError("Failed to access microphone. Check permissions.")
+            return false
+        }
+        val availability = capture.getEffectAvailability()
+        listener?.onEffectAvailability(
+            availability.echoCancellationAvailable,
+            availability.noiseSuppressionAvailable,
+            availability.autoGainAvailable
+        )
+        acquireWakeLock()
+        return true
+    }
+
+    private fun stopAudioCapture() {
+        if (::audioCapture.isInitialized) audioCapture.stop()
+        if (::mixer.isInitialized) mixer.reset()
+    }
+
     // ---- Lifecycle ----
 
     private fun startBroadcast(intent: Intent) {
@@ -404,29 +502,10 @@ class BroadcastService : Service() {
             return
         }
 
-        audioCapture = AudioCaptureManager(
-            onBuffer = { micBuffer, length ->
-                val mixed = mixer.mix(micBuffer, length)
-                encoder.encode(mixed, length)
-            },
-            onLevel = { level ->
-                listener?.onLevels(level, 0f) // TODO: track level once TrackPlayer exposes its own meter
-                checkAutoResume(level)
-                checkDeadAir(level)
-            }
-        )
-        if (!audioCapture.start()) {
-            listener?.onError("Failed to access microphone. Check permissions.")
+        if (!ensureAudioCapture()) {
             stopBroadcast()
             return
         }
-
-        val availability = audioCapture.getEffectAvailability()
-        listener?.onEffectAvailability(
-            availability.echoCancellationAvailable,
-            availability.noiseSuppressionAvailable,
-            availability.autoGainAvailable
-        )
 
         client.connect()
         liveStartTimeMs = System.currentTimeMillis()
@@ -552,8 +631,11 @@ class BroadcastService : Service() {
         urlStreamPlayer?.stop()
         urlStreamPlayer = null
         if (::encoder.isInitialized) encoder.stop()
-        if (::audioCapture.isInitialized) audioCapture.stop()
-        if (::mixer.isInitialized) mixer.reset()
+        if (isPodcastRecording) {
+            // A Live + Podcast session should finalize the episode when the live show ends.
+            stopPodcastRecording()
+        }
+        stopAudioCapture()
         isBelowSilenceThreshold = false
         isInDeadAir = false
         lastDeadAirWarningSeconds = 0

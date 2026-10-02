@@ -9,6 +9,9 @@ import 'settings_screen.dart';
 import 'cart_wall_screen.dart';
 import 'playlist_screen.dart';
 import 'history_screen.dart';
+import 'podcast_studio_screen.dart';
+import '../services/podcast_engine.dart';
+import 'pro_studio_screen.dart';
 
 /// Main "on air" view: mic toggle, live/stop control, level meters,
 /// connection status, broadcast timer, and the mic/track crossfader. This
@@ -44,6 +47,7 @@ class _StudioScreenState extends State<StudioScreen> {
   bool _echoCancellationAvailable = true;
   bool _noiseSuppressionAvailable = true;
   bool _autoGainAvailable = true;
+  bool _podcastRecording = false;
 
   @override
   void initState() {
@@ -78,6 +82,10 @@ class _StudioScreenState extends State<StudioScreen> {
 
     _engine.deadAirStream.listen((seconds) {
       if (mounted) setState(() => _deadAirSeconds = seconds);
+    });
+
+    PodcastEngine.instance.stateStream.listen((state) {
+      if (mounted) setState(() => _podcastRecording = state.recording);
     });
 
     _engine.effectAvailabilityStream.listen((availability) {
@@ -270,11 +278,29 @@ class _StudioScreenState extends State<StudioScreen> {
         title: const Text('Studio'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.podcasts_outlined),
+            tooltip: 'Podcast Studio',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PodcastStudioScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.history),
             tooltip: 'Broadcast history',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const HistoryScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Professional Studio',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProStudioScreen()),
               );
             },
           ),
@@ -357,6 +383,22 @@ class _StudioScreenState extends State<StudioScreen> {
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                 ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    if (_podcastRecording) {
+                      await PodcastEngine.instance.stopRecording();
+                    } else {
+                      final title = 'Live Show — ${DateTime.now().toLocal().toString().split(' ').first}';
+                      await PodcastEngine.instance.startRecording(title: title);
+                    }
+                  },
+                  icon: Icon(_podcastRecording ? Icons.stop_circle : Icons.podcasts),
+                  label: Text(_podcastRecording ? 'STOP & SAVE PODCAST RECORDING' : (isLive ? 'RECORD THIS LIVE SHOW AS PODCAST' : 'OPEN PODCAST STUDIO')),
+                ),
+              ),
               const SizedBox(height: 24),
 
               Row(

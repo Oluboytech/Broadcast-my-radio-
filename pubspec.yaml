@@ -1,7 +1,7 @@
 name: broadcast_my_radio
 description: "BroadcastNG by SoccerHub - live radio studio, mic, and audio player for Icecast/Shoutcast broadcasting."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.4.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -25,6 +25,9 @@ dependencies:
 
   # For reading audio file metadata (title/artist tags) for auto now-playing
   audiotags: ^1.4.4
+
+  # HTTP client for podcast hosting/publishing APIs
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:

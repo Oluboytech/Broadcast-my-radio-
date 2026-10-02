@@ -34,6 +34,7 @@ class MainActivity : FlutterActivity() {
     private val urlStreamErrorChannelName = "ng.soccerhub.bcast/urlstream_error"
     private val deadAirChannelName = "ng.soccerhub.bcast/deadair"
     private val effectsChannelName = "ng.soccerhub.bcast/effects"
+    private val podcastChannelName = "ng.soccerhub.bcast/podcast"
 
     private var statusSink: EventChannel.EventSink? = null
     private var levelsSink: EventChannel.EventSink? = null
@@ -46,6 +47,7 @@ class MainActivity : FlutterActivity() {
     private var urlStreamErrorSink: EventChannel.EventSink? = null
     private var deadAirSink: EventChannel.EventSink? = null
     private var effectsSink: EventChannel.EventSink? = null
+    private var podcastSink: EventChannel.EventSink? = null
 
     // Event sinks must only be invoked on the main thread — BroadcastService's
     // callbacks arrive from background audio threads, so all forwarding below
@@ -133,6 +135,18 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+
+        override fun onPodcastState(recording: Boolean, filePath: String?, durationSeconds: Int) {
+            mainHandler.post {
+                podcastSink?.success(
+                    mapOf(
+                        "recording" to recording,
+                        "filePath" to filePath,
+                        "durationSeconds" to durationSeconds
+                    )
+                )
+            }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -150,6 +164,27 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methodChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "startPodcastRecording" -> {
+                        val args = call.arguments as? Map<*, *>
+                        val title = args?.get("title") as? String
+                        val intent = Intent(this, BroadcastService::class.java).apply {
+                            action = BroadcastService.ACTION_START_PODCAST
+                            putExtra(BroadcastService.EXTRA_PODCAST_TITLE, title)
+                        }
+                        startForegroundService(intent)
+                        result.success(null)
+                    }
+                    "stopPodcastRecording" -> {
+                        val intent = Intent(this, BroadcastService::class.java).apply {
+                            action = BroadcastService.ACTION_STOP_PODCAST
+                        }
+                        startService(intent)
+                        result.success(null)
+                    }
+                    "isPodcastRecording" -> {
+                        result.success(broadcastService?.isPodcastRecording() ?: false)
+                    }
+
                     "startStream" -> {
                         val args = call.arguments as? Map<*, *>
                         val intent = Intent(this, BroadcastService::class.java).apply {
@@ -410,6 +445,16 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     deadAirSink = null
+                }
+            })
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, podcastChannelName)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    podcastSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    podcastSink = null
                 }
             })
 

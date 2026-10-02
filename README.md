@@ -109,3 +109,56 @@ Download it there, or share the release link directly.
 - Format: MP3 or AAC supported; MP3 @ 128kbps is the current default
 - Mount point **must** be sent with a leading `/`
 - Bitrate cap depends on plan (Starter: 192kbps, Prime: 320kbps) — 128kbps is safely within either
+
+## Podcast Studio (v0.2)
+
+BroadcastNG now includes a native post-mixer podcast recorder. It supports standalone podcast recording and recording a live show at the same time. The recorder captures the exact mixed PCM output that is sent to the live encoder, so the saved episode includes mic, playlist beds and cart audio.
+
+### Included
+- Standalone podcast recording while not live
+- One-tap Live + Podcast recording
+- Background-safe Android foreground recording
+- Master WAV capture with 16-bit PCM
+- Episode library and draft metadata
+- Show name, host, category, episode type, season/episode number and explicit flag
+- Artwork selection
+- Chapter markers
+- Production notes
+- Episode status workflow (draft / ready to publish)
+- Podcast RSS feed generator scaffold
+
+### Distribution note
+Podcast directories such as Apple Podcasts and Spotify generally ingest episodes from a hosted RSS feed rather than accepting an arbitrary in-app episode upload. The app therefore keeps recording/publishing metadata separate from directory distribution. A production hosting endpoint can be connected later without changing the audio recording engine.
+
+## Podcast Publishing Hub (v0.3)
+
+The Podcast Studio now includes a publishing/distribution layer designed around a hosted RSS feed.
+
+### Mobile app
+- Configurable HTTPS podcast publishing API + bearer token
+- Upload episode audio and artwork as multipart form data
+- Publish now through the backend
+- Optional automatic upload/publish immediately after a recording finishes
+- RSS base URL, website, language and copyright settings
+- Episode metadata for season, episode number and keywords
+- Distribution status per episode
+- Remote episode/RSS identifiers
+- Hosted analytics with local fallback counters
+- Podcast Publishing Hub UI from the Podcast Studio and Episode Editor
+- RSS export upgraded with iTunes metadata, GUIDs, enclosures, authors, explicit flags and chapter markers
+
+### Backend contract
+See `podcast_backend_contract.md`. The backend owns audio hosting, transcoding, RSS hosting, scheduled publication and provider-specific directory credentials. This keeps sensitive Apple/Spotify/Amazon credentials out of the Android app.
+
+### Important production note
+The app cannot create an Apple Podcasts or Spotify account on behalf of the broadcaster. Those platforms require account ownership/verification and directory submission or hosting authorization. Once the show is established, the publishing backend can keep the RSS feed updated automatically; provider-specific API credentials, where supported, belong on the backend.
+
+## v0.4 Professional Studio
+- Professional mixer controls with persisted channel presets.
+- Auto DJ controls for shuffle, repeat protection, artist/category rotation and crossfade.
+- Station ad library with automatic insertion policy settings.
+- Multiple podcast shows and hosts stored locally.
+- Podcast production controls for noise-reduction strength, intro/outro assets, ad assets and non-destructive edit markers (trim, silence removal, fade, marker).
+- Existing native noise suppression remains available for live/recorded microphone capture.
+
+Production note: the editor stores non-destructive edit instructions and automation assets. A final offline render/export pipeline still needs to be connected to the publishing backend/native media processor for destructive audio rendering.
