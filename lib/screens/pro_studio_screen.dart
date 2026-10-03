@@ -1,26 +1,349 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
 import '../models/studio_models.dart';
 import '../services/broadcast_engine.dart';
 import '../services/studio_management_service.dart';
 import 'playlist_screen.dart';
 import 'podcast_studio_screen.dart';
 
-class ProStudioScreen extends StatefulWidget { const ProStudioScreen({super.key}); @override State<ProStudioScreen> createState()=>_ProStudioScreenState(); }
-class _ProStudioScreenState extends State<ProStudioScreen> with SingleTickerProviderStateMixin {
-  final _svc=StudioManagementService(); final _engine=BroadcastEngine.instance;
-  late TabController _tabs; List<BroadcastChannel> _channels=[]; List<StationAd> _ads=[]; List<PodcastShow> _shows=[]; List<PodcastHost> _hosts=[]; AutoDjSettings _dj=AutoDjSettings();
-  @override void initState(){super.initState();_tabs=TabController(length:4,vsync:this);_load();}
-  Future<void> _load() async { _channels=await _svc.loadChannels();_ads=await _svc.loadAds();_shows=await _svc.loadShows();_hosts=await _svc.loadHosts();_dj=await _svc.loadAutoDj(); if(mounted)setState((){}); }
-  Future<void> _pickAd() async { final r=await FilePicker.platform.pickFiles(type:FileType.audio); if(r?.files.single.path==null)return; final f=r!.files.single; _ads.add(StationAd(id:DateTime.now().microsecondsSinceEpoch.toString(),name:f.name,filePath:f.path!)); await _svc.saveAds(_ads);setState((){}); }
-  Future<void> _addShow() async {final c=TextEditingController();final ok=await _simpleDialog('New show','Show name',c);if(ok&&c.text.trim().isNotEmpty){_shows.add(PodcastShow(id:DateTime.now().microsecondsSinceEpoch.toString(),name:c.text.trim()));await _svc.saveShows(_shows);setState((){});}}
-  Future<void> _addHost() async {final c=TextEditingController();final ok=await _simpleDialog('New host','Host name',c);if(ok&&c.text.trim().isNotEmpty){_hosts.add(PodcastHost(id:DateTime.now().microsecondsSinceEpoch.toString(),name:c.text.trim()));await _svc.saveHosts(_hosts);setState((){});}}
-  Future<bool> _simpleDialog(String title,String label,TextEditingController c) async => await showDialog<bool>(context:context,builder:(_)=>AlertDialog(title:Text(title),content:TextField(controller:c,decoration:InputDecoration(labelText:label)),actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Create'))]))??false;
-  Future<void> _saveDj() async {await _svc.saveAutoDj(_dj);_engine.setShuffle(_dj.shuffle);_engine.setRepeatProtectionEnabled(_dj.repeatProtection);_engine.setArtistSeparationEnabled(_dj.artistSeparation);_engine.setCategoryRotationEnabled(_dj.categoryRotation);_engine.setAutoCrossfadeEnabled(_dj.crossfade);}
-  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Professional Studio'),bottom:TabBar(controller:_tabs,tabs:const[Tab(text:'Mixer'),Tab(text:'Auto DJ'),Tab(text:'Ads'),Tab(text:'Shows & Hosts')])),body:TabBarView(controller:_tabs,children:[_mixer(),_autoDj(),_adsView(),_showsView()]));
-  Widget _mixer()=>ListView(padding:const EdgeInsets.all(16),children:[const Text('Broadcast Mixer',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),const SizedBox(height:8),const Text('Control the main studio sources. Native mixer gains are applied to the live broadcast path.'),const SizedBox(height:12),..._channels.map((c)=>Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text(c.name,style:const TextStyle(fontWeight:FontWeight.bold))),IconButton(icon:Icon(c.muted?Icons.mic_off:Icons.mic),onPressed:(){setState(()=>c.muted=!c.muted);if(c.id=='mic')_engine.setMicMuted(c.muted);})]),Row(children:[const Text('Gain'),Expanded(child:Slider(min:-24,max:12,value:c.gain,onChanged:(v){setState(()=>c.gain=v);if(c.id=='mic')_engine.setMicGain(v);if(c.id=='music')_engine.setTrackGain(v);}))]),Wrap(spacing:8,children:[FilterChip(label:const Text('Gate'),selected:c.noiseGate,onSelected:(v)=>setState(()=>c.noiseGate=v)),FilterChip(label:const Text('Compressor'),selected:c.compressor,onSelected:(v)=>setState(()=>c.compressor=v)),FilterChip(label:const Text('EQ'),selected:c.eq,onSelected:(v)=>setState(()=>c.eq=v))]),])),),),const SizedBox(height:12),FilledButton.icon(onPressed:()async=>_svc.saveChannels(_channels),icon:const Icon(Icons.save),label:const Text('Save mixer preset')),const SizedBox(height:8),OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const PlaylistScreen())),icon:const Icon(Icons.queue_music),label:const Text('Open playlist / media library'))]);
-  Widget _autoDj()=>ListView(padding:const EdgeInsets.all(16),children:[const Text('Auto DJ',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),SwitchListTile(title:const Text('Enable Auto DJ'),subtitle:const Text('Keep the station moving automatically from the playlist.'),value:_dj.enabled,onChanged:(v){setState(()=>_dj.enabled=v);_saveDj();}),SwitchListTile(title:const Text('Smart shuffle'),value:_dj.shuffle,onChanged:(v){setState(()=>_dj.shuffle=v);_saveDj();}),SwitchListTile(title:const Text('Repeat protection'),value:_dj.repeatProtection,onChanged:(v){setState(()=>_dj.repeatProtection=v);_saveDj();}),SwitchListTile(title:const Text('Artist separation'),value:_dj.artistSeparation,onChanged:(v){setState(()=>_dj.artistSeparation=v);_saveDj();}),SwitchListTile(title:const Text('Category rotation'),value:_dj.categoryRotation,onChanged:(v){setState(()=>_dj.categoryRotation=v);_saveDj();}),SwitchListTile(title:const Text('Automatic crossfade'),value:_dj.crossfade,onChanged:(v){setState(()=>_dj.crossfade=v);_saveDj();}),ListTile(title:const Text('Crossfade'),subtitle:Slider(min:0,max:12,divisions:12,value:_dj.crossfadeSeconds.toDouble(),label:'${_dj.crossfadeSeconds}s',onChanged:(v){setState(()=>_dj.crossfadeSeconds=v.round());_saveDj();})),ListTile(title:const Text('Songs between ad breaks'),trailing:DropdownButton<int>(value:_dj.songsBetweenAds,items:[2,3,4,5,6,8].map((n)=>DropdownMenuItem(value:n,child:Text('$n'))).toList(),onChanged:(v){if(v!=null){setState(()=>_dj.songsBetweenAds=v);_saveDj();}})),SwitchListTile(title:const Text('Station ID insertion'),value:_dj.insertStationId,onChanged:(v){setState(()=>_dj.insertStationId=v);_saveDj();}),const SizedBox(height:8),FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const PlaylistScreen())),icon:const Icon(Icons.playlist_play),label:const Text('Manage playlist'))]);
-  Widget _adsView()=>ListView(padding:const EdgeInsets.all(16),children:[Row(children:[const Expanded(child:Text('Ad Library',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),FilledButton.icon(onPressed:_pickAd,icon:const Icon(Icons.add),label:const Text('Add ad'))]),const SizedBox(height:8),const Text('Ads can be tagged in the playlist and inserted automatically by Auto DJ or manually as a cart.'),..._ads.map((a)=>Card(child:SwitchListTile(value:a.enabled,onChanged:(v){setState(()=>a.enabled=v);_svc.saveAds(_ads);},title:Text(a.name),subtitle:Text('${a.durationSeconds}s • ${a.filePath}'),secondary:const Icon(Icons.campaign)))]);
-  Widget _showsView()=>ListView(padding:const EdgeInsets.all(16),children:[Row(children:[const Expanded(child:Text('Podcast Network',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),IconButton(onPressed:_addHost,icon:const Icon(Icons.person_add)),IconButton(onPressed:_addShow,icon:const Icon(Icons.add_box))]),const SizedBox(height:8),const Text('Create multiple shows and assign hosts. Episodes can be produced from the same live studio.'),const SizedBox(height:12),..._shows.map((s)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.podcasts)),title:Text(s.name),subtitle:Text('${s.hostIds.length} assigned hosts'),trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit'){}},itemBuilder:(_)=>const[PopupMenuItem(value:'edit',child:Text('Edit show'))]))),const Divider(),const Text('Hosts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),..._hosts.map((h)=>ListTile(leading:const CircleAvatar(child:Icon(Icons.person)),title:Text(h.name),subtitle:Text(h.email.isEmpty?'Host / presenter':h.email))),const SizedBox(height:8),FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const PodcastStudioScreen())),icon:const Icon(Icons.mic),label:const Text('Open Podcast Studio'))]);
-  @override void dispose(){_tabs.dispose();super.dispose();}
+class ProStudioScreen extends StatefulWidget {
+  const ProStudioScreen({super.key});
+
+  @override
+  State<ProStudioScreen> createState() => _ProStudioScreenState();
+}
+
+class _ProStudioScreenState extends State<ProStudioScreen>
+    with SingleTickerProviderStateMixin {
+  final _svc = StudioManagementService();
+  final _engine = BroadcastEngine.instance;
+
+  late final TabController _tabs;
+  List<BroadcastChannel> _channels = [];
+  List<StationAd> _ads = [];
+  List<PodcastShow> _shows = [];
+  List<PodcastHost> _hosts = [];
+  AutoDjSettings _dj = AutoDjSettings();
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 4, vsync: this);
+    _load();
+  }
+
+  Future<void> _load() async {
+    _channels = await _svc.loadChannels();
+    _ads = await _svc.loadAds();
+    _shows = await _svc.loadShows();
+    _hosts = await _svc.loadHosts();
+    _dj = await _svc.loadAutoDj();
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _pickAd() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final path = result?.files.single.path;
+    if (path == null) return;
+
+    final file = result!.files.single;
+    _ads.add(
+      StationAd(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: file.name,
+        filePath: path,
+      ),
+    );
+
+    await _svc.saveAds(_ads);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _addShow() async {
+    final controller = TextEditingController();
+    final ok = await _simpleDialog('New show', 'Show name', controller);
+    if (!ok || controller.text.trim().isEmpty) return;
+
+    _shows.add(
+      PodcastShow(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: controller.text.trim(),
+      ),
+    );
+
+    await _svc.saveShows(_shows);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _addHost() async {
+    final controller = TextEditingController();
+    final ok = await _simpleDialog('New host', 'Host name', controller);
+    if (!ok || controller.text.trim().isEmpty) return;
+
+    _hosts.add(
+      PodcastHost(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: controller.text.trim(),
+      ),
+    );
+
+    await _svc.saveHosts(_hosts);
+    if (mounted) setState(() {});
+  }
+
+  Future<bool> _simpleDialog(
+    String title,
+    String label,
+    TextEditingController controller,
+  ) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(labelText: label),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    return result == true;
+  }
+
+  Future<void> _saveDj() async {
+    await _svc.saveAutoDj(_dj);
+    _engine.setShuffle(_dj.shuffle);
+    _engine.setRepeatProtectionEnabled(_dj.repeatProtection);
+    _engine.setArtistSeparationEnabled(_dj.artistSeparation);
+    _engine.setCategoryRotationEnabled(_dj.categoryRotation);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Professional Studio'),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const [
+            Tab(text: 'Mixer'),
+            Tab(text: 'Auto DJ'),
+            Tab(text: 'Ads'),
+            Tab(text: 'Network'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          _mixer(),
+          _autoDj(),
+          _adsView(),
+          _showsView(),
+        ],
+      ),
+    );
+  }
+
+  Widget _mixer() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text(
+          'Broadcast Mixer',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Text('Control the live microphone and station mix.'),
+        const SizedBox(height: 16),
+        if (_channels.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No mixer channels configured yet.'),
+            ),
+          )
+        else
+          ..._channels.map(
+            (channel) => Card(
+              child: ListTile(
+                title: Text(channel.name),
+                subtitle: Text('Gain ${channel.gain.toStringAsFixed(2)} • Pan ${channel.pan.toStringAsFixed(2)}'),
+                trailing: Icon(channel.muted ? Icons.volume_off : Icons.volume_up),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _autoDj() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text(
+          'Auto DJ',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Enable Auto DJ'),
+          value: _dj.enabled,
+          onChanged: (value) {
+            setState(() => _dj.enabled = value);
+            _saveDj();
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Shuffle'),
+          value: _dj.shuffle,
+          onChanged: (value) {
+            setState(() => _dj.shuffle = value);
+            _saveDj();
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Repeat protection'),
+          value: _dj.repeatProtection,
+          onChanged: (value) {
+            setState(() => _dj.repeatProtection = value);
+            _saveDj();
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Artist separation'),
+          value: _dj.artistSeparation,
+          onChanged: (value) {
+            setState(() => _dj.artistSeparation = value);
+            _saveDj();
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Category rotation'),
+          value: _dj.categoryRotation,
+          onChanged: (value) {
+            setState(() => _dj.categoryRotation = value);
+            _saveDj();
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _adsView() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Ad Library',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: _pickAd,
+              icon: const Icon(Icons.add),
+              label: const Text('Add ad'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_ads.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No ad files added yet.'),
+            ),
+          )
+        else
+          ..._ads.map(
+            (ad) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.radio),
+                title: Text(ad.name),
+                subtitle: Text(ad.filePath),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _showsView() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Podcast Network',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(
+              onPressed: _addHost,
+              icon: const Icon(Icons.person_add),
+            ),
+            IconButton(
+              onPressed: _addShow,
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_shows.isEmpty && _hosts.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No podcast hosts or shows yet.'),
+            ),
+          )
+        else ...[
+          if (_hosts.isNotEmpty)
+            ..._hosts.map(
+              (host) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.person),
+                  title: Text(host.name),
+                ),
+              ),
+            ),
+          if (_shows.isNotEmpty)
+            ..._shows.map(
+              (show) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.podcasts),
+                  title: Text(show.name),
+                ),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
 }
