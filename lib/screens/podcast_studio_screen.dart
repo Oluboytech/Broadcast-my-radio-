@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../models/podcast_episode.dart';
+import '../models/studio_models.dart';
 import '../services/podcast_engine.dart';
 import '../services/podcast_service.dart';
 import '../services/podcast_publishing_service.dart';
@@ -290,7 +291,11 @@ class _PodcastEpisodeEditorState extends State<PodcastEpisodeEditor> {
           ]),
           if (_episode.editOperations.isNotEmpty) ...[
             const SizedBox(height: 8),
-            ..._episode.editOperations.map((op) => ListTile(dense: true, leading: const Icon(Icons.edit_note), title: Text(op.type), subtitle: Text('${op.start.toStringAsFixed(1)}s → ${op.end.toStringAsFixed(1)}s${op.label == null ? '' : ' • ${op.label}'}'))),
+            ..._episode.editOperations.map((op) {
+              final labelSuffix = op.label == null ? '' : ' • ${op.label}';
+              final subtitle = '${op.start.toStringAsFixed(1)}s → ${op.end.toStringAsFixed(1)}s$labelSuffix';
+              return ListTile(dense: true, leading: const Icon(Icons.edit_note), title: Text(op.type), subtitle: Text(subtitle));
+            }),
           ],
           if (_episode.adBreakPaths.isNotEmpty) Text('${_episode.adBreakPaths.length} ad asset(s) queued'),
           const Divider(height: 24),
